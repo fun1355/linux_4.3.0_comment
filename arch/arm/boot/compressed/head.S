@@ -145,6 +145,9 @@ start:
 #ifdef CONFIG_ARM_VIRT_EXT
 		bl	__hyp_stub_install	@ get into SVC mode, reversibly
 #endif
+/**
+ * 将boot传递的体系结构ID和atags指针保存到寄存器r7,r8中
+ */
 		mov	r7, r1			@ save architecture ID
 		mov	r8, r2			@ save atags pointer
 
@@ -200,6 +203,9 @@ not_angel:
 		/* Determine final kernel image address. */
 		add	r4, r4, #TEXT_OFFSET
 #else
+/**
+ * 内核代码加载地址
+ */
 		ldr	r4, =zreladdr
 #endif
 
@@ -512,6 +518,9 @@ wont_overwrite:
 		blo	1b
 #endif
 
+/**
+ * 清空BSS
+ */
 not_relocated:	mov	r0, #0
 1:		str	r0, [r2], #4		@ clear bss
 		str	r0, [r2], #4
@@ -527,6 +536,9 @@ not_relocated:	mov	r0, #0
 		 */
 		tst	r4, #1
 		bic	r4, r4, #1
+/**
+ * 启用缓存
+ */
 		blne	cache_on
 
 /*
@@ -536,10 +548,16 @@ not_relocated:	mov	r0, #0
  *   r7  = architecture ID
  *   r8  = atags pointer
  */
+/**
+ * 为C运行环境设置堆栈指针
+ */
 		mov	r0, r4
 		mov	r1, sp			@ malloc space above stack
 		add	r2, sp, #0x10000	@ 64k max
 		mov	r3, r7
+/**
+ * 开始解压内核
+ */
 		bl	decompress_kernel
 		bl	cache_clean_flush
 		bl	cache_off
@@ -606,6 +624,9 @@ params:		ldr	r0, =0x10000100		@ params_phys for RPC
  *  r4, r7, r8
  */
 		.align	5
+/**
+ * 8是打开缓存函数在proc_type中的偏移
+ */
 cache_on:	mov	r3, #8			@ cache_on function
 		b	call_cache_fn
 
@@ -677,14 +698,21 @@ __armv3_mpu_cache_on:
 #define CB_BITS 0x0c
 #endif
 
+/**
+ * 设置解压过程需要的MMU
+ */
 __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		bic	r3, r3, #0xff		@ Align the pointer
-		bic	r3, r3, #0x3f00
+		bic	r3, r3, #0x3f00		@ r3是页目录起始地址，位于zimage代码前
 /*
  * Initialise the page tables, turning on the cacheable and bufferable
  * bits for the RAM area only.
  */
 		mov	r0, r3
+/**
+ * 4096项，每项1M
+ * 其中256M启用缓存
+ */
 		mov	r9, r0, lsr #18
 		mov	r9, r9, lsl #18		@ start of RAM
 		add	r10, r9, #0x10000000	@ a reasonable RAM size
@@ -752,17 +780,29 @@ __armv4_mmu_cache_on:
 		mov	pc, r12
 
 __armv7_mmu_cache_on:
+/**
+ * 因为要调用__setup_mmu，因此需要将lr保存起来
+ */
 		mov	r12, lr
 #ifdef CONFIG_MMU
 		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0
 		tst	r11, #0xf		@ VMSA
 		movne	r6, #CB_BITS | 0x02	@ !XN
 		blne	__setup_mmu
+/**
+ * 清空所有写缓冲
+ */
 		mov	r0, #0
 		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
 		tst	r11, #0xf		@ VMSA
+/**
+ * 刷新指令、数据TLB
+ */
 		mcrne	p15, 0, r0, c8, c7, 0	@ flush I,D TLBs
 #endif
+/**
+ * 设置指令缓存激活，缓存替换策略
+ */
 		mrc	p15, 0, r0, c1, c0, 0	@ read control reg
 		bic	r0, r0, #1 << 28	@ clear SCTLR.TRE
 		orr	r0, r0, #0x5000		@ I-cache enable, RR cache replacement
@@ -835,6 +875,9 @@ __common_mmu_cache_on:
  */
 
 call_cache_fn:	adr	r12, proc_types
+/**
+ * 获取处理器ID
+ */
 #ifdef CONFIG_CPU_CP15
 		mrc	p15, 0, r9, c0, c0	@ get processor ID
 #elif defined(CONFIG_CPU_V7M)
@@ -850,10 +893,16 @@ call_cache_fn:	adr	r12, proc_types
 #else
 		ldr	r9, =CONFIG_PROCESSOR_ID
 #endif
+/**
+ * 在proc_type中查找与处理器匹配的proc
+ */
 1:		ldr	r1, [r12, #0]		@ get value
 		ldr	r2, [r12, #4]		@ get mask
 		eor	r1, r1, r9		@ (real ^ match)
 		tst	r1, r2			@       & mask
+/**
+ * r3中保存的函数偏移，此处可能调用打开、关闭、清除cache的函数
+ */
  ARM(		addeq	pc, r12, r3		) @ call cache function
  THUMB(		addeq	r12, r3			)
  THUMB(		moveq	pc, r12			) @ call cache function

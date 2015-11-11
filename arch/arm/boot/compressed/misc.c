@@ -141,7 +141,13 @@ void __stack_chk_fail(void)
 
 extern int do_decompress(u8 *input, int len, u8 *output, void (*error)(char *x));
 
-
+/**
+ * 解压内核
+ *		output_start:解压后的内核起始地址
+ *		free_mem_ptr_p:解压过程中可以使用的内存起始地址，们于堆栈顶部上方
+ *		free_mem_ptr_end_p:可用内存大小
+ *		arch_id:体系ID
+ */
 void
 decompress_kernel(unsigned long output_start, unsigned long free_mem_ptr_p,
 		unsigned long free_mem_ptr_end_p,

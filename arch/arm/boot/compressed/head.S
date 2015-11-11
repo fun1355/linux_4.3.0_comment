@@ -558,7 +558,10 @@ not_relocated:	mov	r0, #0
 /**
  * 开始解压内核
  */
-		bl	decompress_kernel
+		bl	decompress_kernel	@r0:zImage解压位置，r1:位于堆栈上方的动态内存，r2:动态内存大小，r3:体系架构编号
+/**
+ * 清除缓存，并关闭缓存
+ */
 		bl	cache_clean_flush
 		bl	cache_off
 		mov	r1, r7			@ restore architecture number
@@ -582,6 +585,9 @@ not_relocated:	mov	r0, #0
 		.align	2
 .L__hyp_reentry_vectors_offset:	.long	__hyp_reentry_vectors - .
 #else
+/**
+ * 解压完毕，准备启动内核
+ */
 		b	__enter_kernel
 #endif
 
@@ -1088,6 +1094,9 @@ proc_types:
  *  r4, r7, r8
  */
 		.align	5
+/**
+ * 关闭cache的函数位于proc_type偏移12处
+ */
 cache_off:	mov	r3, #12			@ cache_off function
 		b	call_cache_fn
 
@@ -1149,6 +1158,9 @@ __armv7_mmu_cache_off:
  */
 		.align	5
 cache_clean_flush:
+/**
+ * 清除缓存的函数位于proc_type偏移16位置
+ */
 		mov	r3, #16
 		b	call_cache_fn
 
@@ -1396,6 +1408,10 @@ __hyp_reentry_vectors:
 
 __enter_kernel:
 		mov	r0, #0			@ must be 0
+/**
+ * 跳转到解压内核起始地址处执行。
+ * 代码位于arch/arm/kernel/head.S
+ */
  ARM(		mov	pc, r4		)	@ call kernel
  M_CLASS(	add	r4, r4, #1	)	@ enter in Thumb mode for M class
  THUMB(		bx	r4		)	@ entry point is always ARM for A/R classes

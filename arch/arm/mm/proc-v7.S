@@ -414,6 +414,9 @@ __v7_pj4b_setup:
 
 #endif /* CONFIG_CPU_PJ4B */
 
+/**
+ * 在创建初始页表后，调用此函数进行处理器初始化。
+ */
 __v7_setup:
 	adr	r12, __v7_setup_stack		@ the local stack
 	stmia	r12, {r0-r5, lr}		@ v7_invalidate_l1 touches r0-r6
@@ -479,6 +482,9 @@ __errata_finish:
 	bic	r0, r0, r3			@ clear bits them
 	orr	r0, r0, r6			@ set them
  THUMB(	orr	r0, r0, #1 << 30	)	@ Thumb exceptions
+ /**
+  * 返回到head.S:__enable_mmu
+  */
 	ret	lr				@ return to head.S:__ret
 ENDPROC(__v7_setup)
 

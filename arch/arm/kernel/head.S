@@ -89,12 +89,24 @@ ENTRY(stext)
 	bl	__hyp_stub_install
 #endif
 	@ ensure svc mode and all interrupts masked
+/**
+ * 进入SVC状态，并屏蔽所有中断
+ */
 	safe_svcmode_maskall r9
 
+/**
+ * 获得处理器ID
+ */
 	mrc	p15, 0, r9, c0, c0		@ get processor id
+/**
+ * 在procinfo中，根据CPUID查找对应的proc
+ */
 	bl	__lookup_processor_type		@ r5=procinfo r9=cpuid
 	movs	r10, r5				@ invalid processor (r5=0)?
  THUMB( it	eq )		@ force fixup-able long branch encoding
+ /**
+  * CPUID与proc不匹配，只好打印错误信息并停止了
+  */
 	beq	__error_p			@ yes, error 'p'
 
 #ifdef CONFIG_ARM_LPAE
@@ -146,8 +158,14 @@ ENTRY(stext)
 	 * r0 will hold the CPU control register value, r1, r2, r4, and
 	 * r9 will be preserved.  r5 will also be preserved if LPAE.
 	 */
+/**
+ * 启用MMU后，会调用__mmap_switched
+ */
 	ldr	r13, =__mmap_switched		@ address to jump to after
 						@ mmu has been enabled
+/**
+ * 返回地址，调用procinfo中的初始化函数后执行__enable_mmu
+ */
 	badr	lr, 1f				@ return (PIC) address
 #ifdef CONFIG_ARM_LPAE
 	mov	r5, #0				@ high TTBR0
@@ -155,8 +173,15 @@ ENTRY(stext)
 #else
 	mov	r8, r4				@ set TTBR1 to swapper_pg_dir
 #endif
+/**
+ * r10中保存了procinfo，调用它的init函数
+ * 对V7来说，调用的是__v7_setup
+ */
 	ldr	r12, [r10, #PROCINFO_INITFUNC]
 	add	r12, r12, r10
+/**
+ * 返回后，会执行lr中保存的返回地址，即1f，调用__enable_mmu
+ */
 	ret	r12
 1:	b	__enable_mmu
 ENDPROC(stext)
@@ -177,7 +202,13 @@ ENDPROC(stext)
  *  r0, r3, r5-r7 corrupted
  *  r4 = physical page table address
  */
+/**
+ * 设置内核初始页表项
+ */
 __create_page_tables:
+/**
+ * 设置r4为内核页表起始地址，物理地址:内核代码段起始位置前移0x4000
+ */
 	pgtbl	r4, r8				@ page table address
 
 	/*
@@ -185,7 +216,13 @@ __create_page_tables:
 	 */
 	mov	r0, r4
 	mov	r3, #0
+/**
+ * 页表项长度
+ */
 	add	r6, r0, #PG_DIR_SIZE
+/**
+ * 遍历请空页表项
+ */
 1:	str	r3, [r0], #4
 	str	r3, [r0], #4
 	str	r3, [r0], #4
@@ -221,6 +258,9 @@ __create_page_tables:
 #endif
 #endif
 
+/**
+ * 从procinfo中读取mmuflags
+ */
 	ldr	r7, [r10, #PROCINFO_MM_MMUFLAGS] @ mm_mmuflags
 
 	/*
@@ -446,28 +486,55 @@ __secondary_data:
  *  r9  = processor ID
  *  r13 = *virtual* address to jump to upon completion
  */
+/**
+ * 启用MMU，r13中保存的是__mmap_switched
+ */
 __enable_mmu:
+/**
+ * 设置CR_A位，该位控制alignment_abort异常
+ */
 #if defined(CONFIG_ALIGNMENT_TRAP) && __LINUX_ARM_ARCH__ < 6
 	orr	r0, r0, #CR_A
 #else
 	bic	r0, r0, #CR_A
 #endif
+/**
+ * 设置数据缓存控制位
+ */
 #ifdef CONFIG_CPU_DCACHE_DISABLE
 	bic	r0, r0, #CR_C
 #endif
+/**
+ * 禁用分支预测
+ */
 #ifdef CONFIG_CPU_BPREDICT_DISABLE
 	bic	r0, r0, #CR_Z
 #endif
+/**
+ * 禁用指令cache
+ */
 #ifdef CONFIG_CPU_ICACHE_DISABLE
 	bic	r0, r0, #CR_I
 #endif
 #ifdef CONFIG_ARM_LPAE
 	mcrr	p15, 0, r4, r5, c2		@ load TTBR0
 #else
+/**
+ * 设置域，用于控制不同模式下能访问的虚拟地址空间范围
+ */
 	mov	r5, #DACR_INIT
+/**
+ * 将域设置字段加载到CP15的C3寄存器
+ */
 	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
+/**
+ * 加载页表转换表指针到CP15寄存器
+ */
 	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
 #endif
+/**
+ * 打开MMU
+ */
 	b	__turn_mmu_on
 ENDPROC(__enable_mmu)
 
@@ -488,12 +555,25 @@ ENDPROC(__enable_mmu)
 	.align	5
 	.pushsection	.idmap.text, "ax"
 ENTRY(__turn_mmu_on)
+/**
+ * r0中已经包含MMU硬件相关的位了
+ */
 	mov	r0, r0
 	instr_sync
+/**
+ * 将其写入控制器寄存器c1，激活MMU
+ */
 	mcr	p15, 0, r0, c1, c0, 0		@ write control reg
 	mrc	p15, 0, r3, c0, c0, 0		@ read id reg
 	instr_sync
+/**
+ * 这条指令相当于NOP指令，刚切换了MMU，必须在CPU流水线中放这样的指令
+ */
 	mov	r3, r3
+/**
+ * r13中保存的是__mmap_switched函数的地址，跳过去执行吧。
+ * 开启MMU之旅:)
+ */
 	mov	r3, r13
 	ret	r3
 __turn_mmu_on_end:

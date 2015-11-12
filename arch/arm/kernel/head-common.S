@@ -44,10 +44,19 @@
  *  r2 either valid atags pointer, valid dtb pointer, or zero
  *  r5, r6 corrupted
  */
+/**
+ * 检查BOOT传入的ATAGS是否合法，ATAGS被BOOT中的setup_start_tag函数设置。
+ */
 __vet_atags:
+/**
+ * 检查atags是否四字节对齐，不对齐的话直接返回错误
+ */
 	tst	r2, #0x3			@ aligned?
 	bne	1f
 
+/**
+ * 读入其长度，如果其长度不等于ATAG_CORE_SIZE，表示存储的内容不是ATAG
+ */
 	ldr	r5, [r2, #0]
 #ifdef CONFIG_OF_FLATTREE
 	ldr	r6, =OF_DT_MAGIC		@ is it a DTB?
@@ -57,6 +66,9 @@ __vet_atags:
 	cmp	r5, #ATAG_CORE_SIZE		@ is first tag ATAG_CORE?
 	cmpne	r5, #ATAG_CORE_SIZE_EMPTY
 	bne	1f
+/**
+ * 判断其标志是否是ATAG_CORE，第一个元素必须是此类型
+ */
 	ldr	r5, [r2, #4]
 	ldr	r6, =ATAG_CORE
 	cmp	r5, r6
@@ -78,29 +90,66 @@ ENDPROC(__vet_atags)
  *  r9  = processor ID
  */
 	__INIT
+/**
+ * 从这里开始，代码运行在MMU地址空间中。以绝对地址的方式执行，不必用PIC方式执行了。
+ * 为start_kernel准备C运行环境。
+ */
 __mmap_switched:
+/**
+ * 计算PC相对于__mmap_switched_data地址的差异，计算PC减去相对地址的结果。
+ * 这里可以不用这种PIC的方式，但是这样做应该可以节约一条指令。
+ */
 	adr	r3, __mmap_switched_data
 
+/**
+ * 从__mmap_switched_data加载__data_loc，_data，__bss_start，__end变量到寄存器中
+ */
 	ldmia	r3!, {r4, r5, r6, r7}
+/**
+ * __data_loc指向二进制文件中初始化数据的起始位置，__data指向内存中初始化数据的起始位置
+ * 二者一般相等，也许XIP方式下二者会不相等。
+ */
 	cmp	r4, r5				@ Copy data segment if needed
+/**
+ * _data，__bss_start二者之间即为初始化数据，遍历复制它
+ */
 1:	cmpne	r5, r6
 	ldrne	fp, [r4], #4
 	strne	fp, [r5], #4
 	bne	1b
 
+/**
+ * 清空BSS段
+ */
 	mov	fp, #0				@ Clear BSS (and zero fp)
 1:	cmp	r6, r7
 	strcc	fp, [r6],#4
 	bcc	1b
 
+/**
+ * 前面的ldmia指令加了！，因此此时r3已经指向processor_id字段
+ * 注意这里将init进程的SP指针读入到SP寄存器了。
+ */
  ARM(	ldmia	r3, {r4, r5, r6, r7, sp})
  THUMB(	ldmia	r3, {r4, r5, r6, r7}	)
  THUMB(	ldr	sp, [r3, #16]		)
+ /**
+  * 存储处理器ID到全局processor_id变量中
+  */
 	str	r9, [r4]			@ Save processor ID
+/**
+ * 存储机器类型到__machine_arch_type字段
+ */
 	str	r1, [r5]			@ Save machine type
+/**
+ * 存储atags指针
+ */
 	str	r2, [r6]			@ Save atags pointer
 	cmp	r7, #0
 	strne	r0, [r7]			@ Save control register values
+/**
+ * 跳转到C运行环境，是不是想深呼吸一下:)
+ */
 	b	start_kernel
 ENDPROC(__mmap_switched)
 
@@ -149,20 +198,45 @@ ENDPROC(lookup_processor_type)
  *	r5 = proc_info pointer in physical address space
  *	r9 = cpuid (preserved)
  */
+/**
+ * 查找处理器类型，在汇编语言中直接调用
+ * 在r9中保存的是CPUID
+ */
 __lookup_processor_type:
+/**
+ * 加载procinfo起始地址到r3中
+ */
 	adr	r3, __lookup_processor_type_data
-	ldmia	r3, {r4 - r6}
+/**
+ * 将proc info加载到临时寄存器中
+ */
+	ldmia	r3, {r4 - r6}	@ r4-r6中保存的是物理地址
+/**
+ * 计算物理地址和虚拟之间的差异
+ */
 	sub	r3, r3, r4			@ get offset between virt&phys
+/**
+ * 将proc begin和proc end转换为物理地址
+ */
 	add	r5, r5, r3			@ convert virt addresses to
 	add	r6, r6, r3			@ physical address space
+/**
+ * 循环查找匹配的proc
+ */
 1:	ldmia	r5, {r3, r4}			@ value, mask
 	and	r4, r4, r9			@ mask wanted bits
-	teq	r3, r4
+	teq	r3, r4				@ 匹配成功即退出
 	beq	2f
 	add	r5, r5, #PROC_INFO_SZ		@ sizeof(proc_info_list)
 	cmp	r5, r6
 	blo	1b
+/**
+ * 无法识别的CPU
+ */
 	mov	r5, #0				@ unknown processor
+/**
+ * 在初始化时，lr中保存的地址是:b __enable_mmu
+ */
 2:	ret	lr
 ENDPROC(__lookup_processor_type)
 

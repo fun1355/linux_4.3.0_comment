@@ -5,12 +5,24 @@
  */
 	.macro	arch_irq_handler_default
 	get_irqnr_preamble r6, lr
+/**
+ * 获得中断编号
+ */
 1:	get_irqnr_and_base r0, r2, r6, lr
+/**
+ * 当前sp正好指向pt_regs
+ */
 	movne	r1, sp
 	@
 	@ routine called with r0 = irq number, r1 = struct pt_regs *
 	@
+/**
+ * 错误的中断就退出
+ */
 	badrne	lr, 1b
+/**
+ * 中断号正确，处理中断
+ */
 	bne	asm_do_IRQ
 
 #ifdef CONFIG_SMP

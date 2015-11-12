@@ -65,6 +65,9 @@ int arch_show_interrupts(struct seq_file *p, int prec)
  * own 'handler'.  Used by platform code implementing C-based 1st
  * level decoding.
  */
+/**
+ * 中断处理，中断号由平台相关的代码进行解析。
+ */
 void handle_IRQ(unsigned int irq, struct pt_regs *regs)
 {
 	__handle_domain_irq(NULL, irq, false, regs);
@@ -72,6 +75,9 @@ void handle_IRQ(unsigned int irq, struct pt_regs *regs)
 
 /*
  * asm_do_IRQ is the interface to be used from assembly code.
+ */
+/**
+ * 从汇编语言中调用此函数处理中断。
  */
 asmlinkage void __exception_irq_entry
 asm_do_IRQ(unsigned int irq, struct pt_regs *regs)

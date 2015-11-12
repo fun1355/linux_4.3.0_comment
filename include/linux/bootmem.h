@@ -244,6 +244,9 @@ static inline void __init memblock_free_late(
 
 
 /* Fall back to all the existing bootmem APIs */
+/**
+ * 在bootmem中分配内存
+ */
 static inline void * __init memblock_virt_alloc(
 					phys_addr_t size,  phys_addr_t align)
 {

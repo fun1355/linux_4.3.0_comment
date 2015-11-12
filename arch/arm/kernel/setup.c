@@ -453,6 +453,7 @@ static void __init elf_hwcap_fixup(void)
 void notrace cpu_init(void)
 {
 #ifndef CONFIG_CPU_V7M
+	//取当前CPU的堆栈
 	unsigned int cpu = smp_processor_id();
 	struct stack *stk = &stacks[cpu];
 
@@ -481,6 +482,9 @@ void notrace cpu_init(void)
 
 	/*
 	 * setup stacks for re-entrant exception handlers
+	 */
+	/**
+	 * 设置各种异常和中断的堆栈入口。
 	 */
 	__asm__ (
 	"msr	cpsr_c, %1\n\t"
@@ -660,6 +664,9 @@ static void __init setup_processor(void)
 	elf_hwcap_fixup();
 
 	cacheid_init();
+	/**
+	 * 初始化CPU在各种模式下使用的栈空间
+	 */
 	cpu_init();
 }
 
@@ -772,25 +779,34 @@ static int __init early_mem(char *p)
 }
 early_param("mem", early_mem);
 
+/**
+ * 将不依赖于机器的内存、设备端口资源注册到/proc/iomem中
+ */
 static void __init request_standard_resources(const struct machine_desc *mdesc)
 {
 	struct memblock_region *region;
 	struct resource *res;
 
+	//内核代码段、数据段区间
 	kernel_code.start   = virt_to_phys(_text);
 	kernel_code.end     = virt_to_phys(_etext - 1);
 	kernel_data.start   = virt_to_phys(_sdata);
 	kernel_data.end     = virt_to_phys(_end - 1);
 
+	//遍历所有内存块
 	for_each_memblock(memory, region) {
+		//分配内存，保存资源描述信息
 		res = memblock_virt_alloc(sizeof(*res), 0);
+		//填充资源信息
 		res->name  = "System RAM";
 		res->start = __pfn_to_phys(memblock_region_memory_base_pfn(region));
 		res->end = __pfn_to_phys(memblock_region_memory_end_pfn(region)) - 1;
 		res->flags = IORESOURCE_MEM | IORESOURCE_BUSY;
 
+		//将资源信息记录到iomem_resource中
 		request_resource(&iomem_resource, res);
 
+		//如果内核代码段、数据段位于该区间，则将其记录为子区间。
 		if (kernel_code.start >= res->start &&
 		    kernel_code.end <= res->end)
 			request_resource(res, &kernel_code);
@@ -799,7 +815,7 @@ static void __init request_standard_resources(const struct machine_desc *mdesc)
 			request_resource(res, &kernel_data);
 	}
 
-	if (mdesc->video_start) {
+	if (mdesc->video_start) {//如果有video缓冲区，则将它记录下来
 		video_ram.start = mdesc->video_start;
 		video_ram.end   = mdesc->video_end;
 		request_resource(&iomem_resource, &video_ram);
@@ -809,7 +825,7 @@ static void __init request_standard_resources(const struct machine_desc *mdesc)
 	 * Some machines don't have the possibility of ever
 	 * possessing lp0, lp1 or lp2
 	 */
-	if (mdesc->reserve_lp0)
+	if (mdesc->reserve_lp0)//将lp0,lp1,lp2用到的端口区间也记录下来。
 		request_resource(&ioport_resource, &lp0);
 	if (mdesc->reserve_lp1)
 		request_resource(&ioport_resource, &lp1);
@@ -938,11 +954,16 @@ void __init hyp_mode_check(void)
 #endif
 }
 
+/**
+ * 体系架构相关的初始化。
+ */
 void __init setup_arch(char **cmdline_p)
 {
 	const struct machine_desc *mdesc;
 
+	//设置CPU处理器
 	setup_processor();
+	//设置机器，如果boot传递了dtb给内核的话，就根据指示进行初始化。
 	mdesc = setup_machine_fdt(__atags_pointer);
 	if (!mdesc)
 		mdesc = setup_machine_tags(__atags_pointer, __machine_arch_type);
@@ -965,6 +986,7 @@ void __init setup_arch(char **cmdline_p)
 	if (IS_ENABLED(CONFIG_FIX_EARLYCON_MEM))
 		early_fixmap_init();
 
+	//解析命令行参数，第一次解析
 	parse_early_param();
 
 #ifdef CONFIG_MMU
@@ -974,7 +996,9 @@ void __init setup_arch(char **cmdline_p)
 	sanity_check_meminfo();
 	arm_memblock_init(mdesc);
 
+	//分页初始化。
 	paging_init(mdesc);
+	//将初始化阶段发现的内存、端口等地址空间资源添加到资源树中。
 	request_standard_resources(mdesc);
 
 	if (mdesc->restart)
@@ -986,13 +1010,15 @@ void __init setup_arch(char **cmdline_p)
 	psci_dt_init();
 	xen_early_init();
 #ifdef CONFIG_SMP
+	//虽然配置了SMP，但是仍然有可能运行在单核上。
 	if (is_smp()) {
-		if (!mdesc->smp_init || !mdesc->smp_init()) {
+		if (!mdesc->smp_init || !mdesc->smp_init()) {//运行smp_init
 			if (psci_smp_available())
 				smp_set_ops(&psci_smp_ops);
 			else if (mdesc->smp)
 				smp_set_ops(mdesc->smp);
 		}
+		//调用回调初始化CPU
 		smp_init_cpus();
 		smp_build_mpidr_hash();
 	}

@@ -21,11 +21,15 @@ BLOCKING_NOTIFIER_HEAD(reboot_notifier_list);
 static int notifier_chain_register(struct notifier_block **nl,
 		struct notifier_block *n)
 {
+	/**
+	 * 遍历通知链，按优先级查找插入位置
+	 */
 	while ((*nl) != NULL) {
 		if (n->priority > (*nl)->priority)
 			break;
 		nl = &((*nl)->next);
 	}
+	//将侦听者插入链表。
 	n->next = *nl;
 	rcu_assign_pointer(*nl, n);
 	return 0;
@@ -343,6 +347,9 @@ EXPORT_SYMBOL_GPL(blocking_notifier_call_chain);
  *	All locking must be provided by the caller.
  *
  *	Currently always returns zero.
+ */
+/**
+ * 将事件侦听者注册到通知链中。
  */
 int raw_notifier_chain_register(struct raw_notifier_head *nh,
 		struct notifier_block *n)

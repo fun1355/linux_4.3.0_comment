@@ -190,23 +190,29 @@ setup_machine_tags(phys_addr_t __atags_pointer, unsigned int machine_nr)
 	/*
 	 * locate machine in the list of supported machines.
 	 */
+	/**
+	 * 遍历支持的描述符表
+	 */
 	for_each_machine_desc(p)
-		if (machine_nr == p->nr) {
+		if (machine_nr == p->nr) {//匹配
 			pr_info("Machine: %s\n", p->name);
 			mdesc = p;
 			break;
 		}
 
-	if (!mdesc) {
+	if (!mdesc) {//不支持的机器类型
 		early_print("\nError: unrecognized/unsupported machine ID"
 			    " (r1 = 0x%08x).\n\n", machine_nr);
 		dump_machine_table(); /* does not return */
 	}
 
+	/**
+	 * 获得生效的atags
+	 */
 	if (__atags_pointer)
-		tags = phys_to_virt(__atags_pointer);
+		tags = phys_to_virt(__atags_pointer);//优先使用boot传过来的tags
 	else if (mdesc->atag_offset)
-		tags = (void *)(PAGE_OFFSET + mdesc->atag_offset);
+		tags = (void *)(PAGE_OFFSET + mdesc->atag_offset);//否则使用机器信息结构体中的值。
 
 #if defined(CONFIG_DEPRECATED_PARAM_STRUCT)
 	/*
@@ -216,18 +222,24 @@ setup_machine_tags(phys_addr_t __atags_pointer, unsigned int machine_nr)
 	if (tags->hdr.tag != ATAG_CORE)
 		convert_to_tag_list(tags);
 #endif
+	/**
+	 * 第一项必须是ATAG_CORE类型，然后是ATAG_MEM,ATAG_CMDLINE,ATAG_NONE等等
+	 * 如果不是，可能是严重的故障，使用默认的atags。
+	 */
 	if (tags->hdr.tag != ATAG_CORE) {
 		early_print("Warning: Neither atags nor dtb found\n");
 		tags = (struct tag *)&default_tags;
 	}
 
-	if (mdesc->fixup)
+	if (mdesc->fixup)//先处理fixup
 		mdesc->fixup(tags, &from);
 
-	if (tags->hdr.tag == ATAG_CORE) {
-		if (memblock_phys_mem_size())
-			squash_mem_tags(tags);
+	if (tags->hdr.tag == ATAG_CORE) {//atags有效
+		if (memblock_phys_mem_size())//如果fixup中已经处理了meminfo
+			squash_mem_tags(tags);//忽略atags中的ATAG_MEM
+		//复制一份atags
 		save_atags(tags);
+		//处理atags
 		parse_tags(tags);
 	}
 

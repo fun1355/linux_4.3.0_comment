@@ -91,8 +91,14 @@ ENDPROC(ret_fast_syscall)
  */
 ENTRY(ret_to_user)
 ret_slow_syscall:
+/**
+ * 在中断处理流程中，可能打开了中断。此处关闭
+ */
 	disable_irq_notrace			@ disable interrupts
 ENTRY(ret_to_user_from_irq)
+/**
+ * 处理抢占调度、信号等等
+ */
 	ldr	r1, [tsk, #TI_FLAGS]
 	tst	r1, #_TIF_WORK_MASK
 	bne	slow_work_pending
@@ -100,9 +106,15 @@ no_work_pending:
 	asm_trace_hardirqs_on save = 0
 
 	/* perform architecture specific actions before user return */
+/**
+ * 只有特殊架构才会在此处理
+ */
 	arch_ret_to_user r1, lr
 	ct_user_enter save = 0
 
+/**
+ * 恢复寄存器。
+ */
 	restore_user_regs fast = 0, offset = 0
 ENDPROC(ret_to_user_from_irq)
 ENDPROC(ret_to_user)

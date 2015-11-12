@@ -430,6 +430,9 @@ static void cond_unmask_irq(struct irq_desc *desc)
  *	it after the associated handler has acknowledged the device, so the
  *	interrupt line is back to inactive.
  */
+/**
+ * 大多数中断都是边缘触发，需要在开始时屏蔽外设，处理完以后再应答，解除屏蔽。
+ */
 void handle_level_irq(struct irq_desc *desc)
 {
 	raw_spin_lock(&desc->lock);

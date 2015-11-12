@@ -343,10 +343,14 @@ void irq_init_desc(unsigned int irq)
  */
 int generic_handle_irq(unsigned int irq)
 {
+	/**
+	 * 查找该中断号的描述符
+	 */
 	struct irq_desc *desc = irq_to_desc(irq);
 
-	if (!desc)
+	if (!desc)//没有，可能是还没有注册任何中断。
 		return -EINVAL;
+	//调用注册的中断回调函数。
 	generic_handle_irq_desc(desc);
 	return 0;
 }
@@ -365,10 +369,17 @@ EXPORT_SYMBOL_GPL(generic_handle_irq);
 int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
 			bool lookup, struct pt_regs *regs)
 {
+	/**
+	 * 将当前中断现场保存下来
+	 * 这样其他代码就可以通过get_irq_regs函数获得中断现场了。
+	 */
 	struct pt_regs *old_regs = set_irq_regs(regs);
 	unsigned int irq = hwirq;
 	int ret = 0;
 
+	/**
+	 * 处理抢占计数，rcu等等
+	 */
 	irq_enter();
 
 #ifdef CONFIG_IRQ_DOMAIN
@@ -380,14 +391,20 @@ int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
 	 * Some hardware gives randomly wrong interrupts.  Rather
 	 * than crashing, do something sensible.
 	 */
-	if (unlikely(!irq || irq >= nr_irqs)) {
+	if (unlikely(!irq || irq >= nr_irqs)) {//判断中断号的合法性
 		ack_bad_irq(irq);
 		ret = -EINVAL;
 	} else {
+		//进行通常的中断处理
 		generic_handle_irq(irq);
 	}
 
+	//处理rcu，抢占计数等等，也处理软中断
 	irq_exit();
+	/**
+	 * 退出中断前，恢复上一个pt_regs指针。
+	 * 上一次中断的处理代码调用get_irq_regs才正常。
+	 */
 	set_irq_regs(old_regs);
 	return ret;
 }

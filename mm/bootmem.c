@@ -604,6 +604,7 @@ find_block:
 	return NULL;
 }
 
+//bootmem分配核心函数
 static void * __init alloc_bootmem_core(unsigned long size,
 					unsigned long align,
 					unsigned long goal,
@@ -612,23 +613,31 @@ static void * __init alloc_bootmem_core(unsigned long size,
 	bootmem_data_t *bdata;
 	void *region;
 
+	//有人调错函数了，警告一下
 	if (WARN_ON_ONCE(slab_is_available()))
-		return kzalloc(size, GFP_NOWAIT);
+		return kzalloc(size, GFP_NOWAIT);//此时slab分配器已经可用，就从slab中分配吧。
 
+	//遍历所有内存块
 	list_for_each_entry(bdata, &bdata_list, list) {
+		//根据goal查找合适的内存块。
 		if (goal && bdata->node_low_pfn <= PFN_DOWN(goal))
 			continue;
 		if (limit && bdata->node_min_pfn >= PFN_DOWN(limit))
 			break;
 
+		//在内存块中分配。
 		region = alloc_bootmem_bdata(bdata, size, align, goal, limit);
-		if (region)
+		if (region)//成功了，返回
 			return region;
 	}
 
 	return NULL;
 }
 
+/**
+ * 在bootmem中分配内存
+ * 优先从goal中分配，如果在goal中没有找到可用内存，则从其他内存条中分配。
+ */
 static void * __init ___alloc_bootmem_nopanic(unsigned long size,
 					      unsigned long align,
 					      unsigned long goal,
@@ -637,14 +646,16 @@ static void * __init ___alloc_bootmem_nopanic(unsigned long size,
 	void *ptr;
 
 restart:
+	//从goal开始分配
 	ptr = alloc_bootmem_core(size, align, goal, limit);
-	if (ptr)
+	if (ptr)//成功:)
 		return ptr;
-	if (goal) {
+	if (goal) {//如果分配失败，并且不是从头开始分配，则回退
 		goal = 0;
 		goto restart;
 	}
 
+	//确实无法分配了:(
 	return NULL;
 }
 

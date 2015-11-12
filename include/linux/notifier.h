@@ -50,26 +50,36 @@
 typedef	int (*notifier_fn_t)(struct notifier_block *nb,
 			unsigned long action, void *data);
 
+/**
+ * 事件接收者
+ */
 struct notifier_block {
+	//接收者回调函数
 	notifier_fn_t notifier_call;
+	//通过此指针将接收者链接起来，注意__rcu关键字。
 	struct notifier_block __rcu *next;
+	//优先级
 	int priority;
 };
 
+//原子通知链，在中断或者其他不允许阻塞的上下文调用回调函数
 struct atomic_notifier_head {
 	spinlock_t lock;
 	struct notifier_block __rcu *head;
 };
 
+//可阻塞通知链
 struct blocking_notifier_head {
 	struct rw_semaphore rwsem;
 	struct notifier_block __rcu *head;
 };
 
+//原始通知链，无限制，同步及保护由调用方负责
 struct raw_notifier_head {
 	struct notifier_block __rcu *head;
 };
 
+//SRCU通知链，可阻塞。但是srcu不允许长时间阻塞。
 struct srcu_notifier_head {
 	struct mutex mutex;
 	struct srcu_struct srcu;

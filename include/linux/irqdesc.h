@@ -137,6 +137,10 @@ static inline struct msi_desc *irq_desc_get_msi_desc(struct irq_desc *desc)
  */
 static inline void generic_handle_irq_desc(struct irq_desc *desc)
 {
+	/**
+	 * 调用描述符中的回调，例如handle_level_irq.
+	 * 通过__irq_set_handler设置回调函数。
+	 */
 	desc->handle_irq(desc);
 }
 

@@ -1276,6 +1276,9 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	 */
 	vectors = early_alloc(PAGE_SIZE * 2);
 
+	/**
+	 * 将中断和异常处理代码入口复制到向量表中。
+	 */
 	early_trap_init(vectors);
 
 	/*
@@ -1566,27 +1569,45 @@ static void __init early_fixmap_shutdown(void)
  * paging_init() sets up the page tables, initialises the zone memory
  * maps, and sets up the zero page, bad page and bad page tables.
  */
+/**
+ * 初始化分页
+ */
 void __init paging_init(const struct machine_desc *mdesc)
 {
 	void *zero_page;
 
+	/**
+	 * 根据ARM CPU版本及内存类型对mem_type结构体进行初始化。
+	 */
 	build_mem_type_table();
+	//准备页表
 	prepare_page_table();
 	map_lowmem();
 	memblock_set_current_limit(arm_lowmem_limit);
 	dma_contiguous_remap();
 	early_fixmap_shutdown();
+	/**
+	 * 对设备需要的内存区和向量表进行初始化。
+	 */
 	devicemaps_init(mdesc);
+	/**
+	 * 对kmap区域进行初始化。
+	 * 分配kmap需要的页表项。
+	 */
 	kmap_init();
 	tcm_init();
 
 	top_pmd = pmd_off_k(0xffff0000);
 
 	/* allocate the zero page. */
+	//分配零页
 	zero_page = early_alloc(PAGE_SIZE);
 
+	//初始化boot内存分配器。
 	bootmem_init();
 
+	//获得0页的页框
 	empty_zero_page = virt_to_page(zero_page);
+	//清除0页数据缓存。
 	__flush_dcache_page(NULL, empty_zero_page);
 }

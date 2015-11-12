@@ -38,6 +38,9 @@
 /*
  * Interrupt handling.
  */
+/**
+ * 调用C语言中的中断处理程序
+ */
 	.macro	irq_handler
 #ifdef CONFIG_MULTI_IRQ_HANDLER
 	ldr	r1, =handle_arch_irq
@@ -208,20 +211,44 @@ __dabt_svc:
 ENDPROC(__dabt_svc)
 
 	.align	5
+/**
+ * svc模式下的中断入口
+ */
 __irq_svc:
+/**
+ * 保存中断前的内核态现场
+ */
 	svc_entry
+/**
+ * 处理中断
+ */
 	irq_handler
 
 #ifdef CONFIG_PREEMPT
+/**
+ * 从r9中取当前线程的threadinfo
+ */
 	get_thread_info tsk
+/**
+ * 读抢占计数
+ */
 	ldr	r8, [tsk, #TI_PREEMPT]		@ get preempt count
 	ldr	r0, [tsk, #TI_FLAGS]		@ get flags
+/**
+ * ???
+ */
 	teq	r8, #0				@ if preempt count != 0
 	movne	r0, #0				@ force flags to 0
+/**
+ * 如果需要抢占调度，则进行抢占。
+ */
 	tst	r0, #_TIF_NEED_RESCHED
 	blne	svc_preempt
 #endif
 
+/**
+ * 这里的恢复过程有点不一样，返回到上一层异常。
+ */
 	svc_exit r5, irq = 1			@ return from exception
  UNWIND(.fnend		)
 ENDPROC(__irq_svc)
@@ -453,11 +480,26 @@ __dabt_usr:
 ENDPROC(__dabt_usr)
 
 	.align	5
+/**
+ * usr模式下的中断入口
+ */
 __irq_usr:
+/**
+ * 将用户模式的上下文保存到svc模式的栈中
+ */
 	usr_entry
+/**
+ * 如果在用户态下处理原子操作，此时需要特殊处理。
+ */
 	kuser_cmpxchg_check
 	irq_handler
+/**
+ * 从r9中取得当前进程的threadinfo
+ */
 	get_thread_info tsk
+/**
+ * 返回用户态
+ */
 	mov	why, #0
 	b	ret_to_user_from_irq
  UNWIND(.fnend		)
@@ -1051,10 +1093,16 @@ __kuser_helper_end:
  * SP points to a minimal amount of processor-private memory, the address
  * of which is copied into r0 for the mode specific abort handler.
  */
+/**
+ * correction是异常地址与返回地址之间的修正量。
+ */
 	.macro	vector_stub, name, mode, correction=0
 	.align	5
 
 vector_\name:
+/**
+ * 调整返回值
+ */
 	.if \correction
 	sub	lr, lr, #\correction
 	.endif
@@ -1063,13 +1111,24 @@ vector_\name:
 	@ Save r0, lr_<exception> (parent PC) and spsr_<exception>
 	@ (parent CPSR)
 	@
+/**
+ * 保存r0,lr,和spsr
+ * 注意堆栈空间只有几个字节，以后应该会再切换堆栈的。
+ */
 	stmia	sp, {r0, lr}		@ save r0, lr
+/**
+ * 后四位应该是异常时CPU所处的模式
+ */
 	mrs	lr, spsr
 	str	lr, [sp, #8]		@ save spsr
 
 	@
 	@ Prepare for SVC32 mode.  IRQs remain disabled.
 	@
+/**
+ * 仍然禁用中断。
+ * 准备进入SVC模式。
+ */
 	mrs	r0, cpsr
 	eor	r0, r0, #(\mode ^ SVC_MODE | PSR_ISETSTATE)
 	msr	spsr_cxsf, r0
@@ -1077,11 +1136,21 @@ vector_\name:
 	@
 	@ the branch table must immediately follow this code
 	@
+/**
+ * 异常时CPU所处的模式
+ */
 	and	lr, lr, #0x0f
  THUMB(	adr	r0, 1f			)
  THUMB(	ldr	lr, [r0, lr, lsl #2]	)
 	mov	r0, sp
+/**
+ * pc应该正好指向随后的label，加上CPU模式，lr中正好保存了异常入口函数。
+ */
  ARM(	ldr	lr, [pc, lr, lsl #2]	)
+ /**
+  * 将lr的值加载到pc，并将spsr值复制到cpsr。
+  * 跳转到异常入口，如__irq_usr
+  */
 	movs	pc, lr			@ branch to handler in SVC mode
 ENDPROC(vector_\name)
 
@@ -1106,6 +1175,10 @@ vector_rst:
  */
 	vector_stub	irq, IRQ_MODE, 4
 
+/**
+ * 各种模式下的中断入口
+ * linux只使用了usr和svc下的中断，其他模式均为错误模式
+ */
 	.long	__irq_usr			@  0  (USR_26 / USR_32)
 	.long	__irq_invalid			@  1  (FIQ_26 / FIQ_32)
 	.long	__irq_invalid			@  2  (IRQ_26 / IRQ_32)
@@ -1129,6 +1202,9 @@ vector_rst:
  */
 	vector_stub	dabt, ABT_MODE, 8
 
+/**
+ * 各种模式下的dabt入口
+ */
 	.long	__dabt_usr			@  0  (USR_26 / USR_32)
 	.long	__dabt_invalid			@  1  (FIQ_26 / FIQ_32)
 	.long	__dabt_invalid			@  2  (IRQ_26 / IRQ_32)
@@ -1233,6 +1309,10 @@ vector_addrexcptn:
 	.equ	vector_fiq_offset, vector_fiq
 
 	.section .vectors, "ax", %progbits
+/**
+ * 复制到向量地址表中的代码，各种中断和异常的处理入口。
+ * 这些代码由vector_stub生成
+ */
 __vectors_start:
 	W(b)	vector_rst
 	W(b)	vector_und

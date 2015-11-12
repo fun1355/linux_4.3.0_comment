@@ -479,8 +479,11 @@ void __init page_address_init(void)
 {
 	int i;
 
+	//遍历vmalloc虚拟地址空间的哈希桶
 	for (i = 0; i < ARRAY_SIZE(page_address_htable); i++) {
+		//初始化桶链表头
 		INIT_LIST_HEAD(&page_address_htable[i].lh);
+		//初始化管理桶的自旋锁。
 		spin_lock_init(&page_address_htable[i].lock);
 	}
 }

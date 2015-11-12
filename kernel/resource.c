@@ -205,30 +205,39 @@ static struct resource *alloc_resource(gfp_t flags)
 }
 
 /* Return the conflict entry if you can't request it */
+/**
+ * 从资源空间中申请一段可用地址空间。
+ */
 static struct resource * __request_resource(struct resource *root, struct resource *new)
 {
 	resource_size_t start = new->start;
 	resource_size_t end = new->end;
 	struct resource *tmp, **p;
 
+	//检查参数有效性
 	if (end < start)
 		return root;
 	if (start < root->start)
 		return root;
 	if (end > root->end)
 		return root;
+
+	//待申请的空间确实位于空间内。
 	p = &root->child;
-	for (;;) {
+	for (;;) {//遍历所有子节点
 		tmp = *p;
+		//找到合适的区间，将它插入到子节点链表中
 		if (!tmp || tmp->start > end) {
 			new->sibling = tmp;
 			*p = new;
 			new->parent = root;
 			return NULL;
 		}
+		//比较下一个节点。
 		p = &tmp->sibling;
 		if (tmp->end < start)
 			continue;
+		//糟了，冲突了。
 		return tmp;
 	}
 }

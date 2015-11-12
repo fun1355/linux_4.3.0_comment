@@ -840,10 +840,15 @@ static inline void __init kuser_init(void *vectors)
 }
 #endif
 
+/**
+ * 初始化异常，复制异常向量表相关的代码。
+ */
 void __init early_trap_init(void *vectors_base)
 {
 #ifndef CONFIG_CPU_V7M
+	//异常向量表基地址，可能为0或者0xffff0000
 	unsigned long vectors = (unsigned long)vectors_base;
+	//向异常处理入口汇编代码地址。需要复制。
 	extern char __stubs_start[], __stubs_end[];
 	extern char __vectors_start[], __vectors_end[];
 	unsigned i;
@@ -856,6 +861,7 @@ void __init early_trap_init(void *vectors_base)
 	 * ISAs.  The Thumb version is an undefined instruction with a
 	 * branch back to the undefined instruction.
 	 */
+	//首先对向量表地址页进行内存毒化。
 	for (i = 0; i < PAGE_SIZE / sizeof(u32); i++)
 		((u32 *)vectors_base)[i] = 0xe7fddef1;
 
@@ -864,11 +870,14 @@ void __init early_trap_init(void *vectors_base)
 	 * into the vector page, mapped at 0xffff0000, and ensure these
 	 * are visible to the instruction stream.
 	 */
+	//将entry-armv.S中处理中断和异常的汇编代码复制过来
 	memcpy((void *)vectors, __vectors_start, __vectors_end - __vectors_start);
 	memcpy((void *)vectors + 0x1000, __stubs_start, __stubs_end - __stubs_start);
 
+	//从__kuser_helper_start复制代码，包括kuser_memory_barrier，kernel_cmpxchg等等代码。
 	kuser_init(vectors_base);
 
+	//清空指令缓存
 	flush_icache_range(vectors, vectors + PAGE_SIZE * 2);
 #else /* ifndef CONFIG_CPU_V7M */
 	/*

@@ -458,8 +458,10 @@ void __init parse_early_param(void)
 
 static void __init boot_cpu_init(void)
 {
+	//取当前CPU编号
 	int cpu = smp_processor_id();
 	/* Mark the boot cpu "present", "online" etc for SMP and UP case */
+	//在CPU位图中，将boot CPU设置为联机，可用
 	set_cpu_online(cpu, true);
 	set_cpu_active(cpu, true);
 	set_cpu_present(cpu, true);
@@ -544,9 +546,16 @@ asmlinkage __visible void __init start_kernel(void)
  * Interrupts are still disabled. Do necessary setups, then
  * enable them
  */
+ 	/**
+ 	 * 在CPU状态位图中注册当前CPU
+ 	 */
 	boot_cpu_init();
+	/**
+	 * 当开启高端内存选项时，初始化vmalloc用到的虚拟地址空间数据结构。
+	 */
 	page_address_init();
 	pr_notice("%s", linux_banner);
+	//处理CPU体系架构相关的事务。
 	setup_arch(&command_line);
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
@@ -605,6 +614,9 @@ asmlinkage __visible void __init start_kernel(void)
 	/* init some links before init_ISA_irqs() */
 	early_irq_init();
 	init_IRQ();
+	/**
+	 * 初始化时钟
+	 */
 	tick_init();
 	rcu_init_nohz();
 	init_timers();

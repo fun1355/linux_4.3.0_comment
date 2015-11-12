@@ -771,6 +771,10 @@ EXPORT_SYMBOL_GPL(cpu_bit_bitmap);
 const DECLARE_BITMAP(cpu_all_bits, NR_CPUS) = CPU_BITS_ALL;
 EXPORT_SYMBOL(cpu_all_bits);
 
+/**
+ * 可能出现的CPU，根据menuconfig配置确定
+ * 实际的CPU可能并没有那么多。
+ */
 #ifdef CONFIG_INIT_ALL_POSSIBLE
 static DECLARE_BITMAP(cpu_possible_bits, CONFIG_NR_CPUS) __read_mostly
 	= CPU_BITS_ALL;
@@ -780,10 +784,17 @@ static DECLARE_BITMAP(cpu_possible_bits, CONFIG_NR_CPUS) __read_mostly;
 const struct cpumask *const cpu_possible_mask = to_cpumask(cpu_possible_bits);
 EXPORT_SYMBOL(cpu_possible_mask);
 
+/**
+ * 所有联机CPU位图，联机表示该CPU可以接收中断和运行程序。
+ */
 static DECLARE_BITMAP(cpu_online_bits, CONFIG_NR_CPUS) __read_mostly;
 const struct cpumask *const cpu_online_mask = to_cpumask(cpu_online_bits);
 EXPORT_SYMBOL(cpu_online_mask);
 
+/**
+ * 系统内可用CPU的位置，以ACPI等物理方式处理热插拨时，修改此位图。
+ * 其他的某些CPU可能并不联机。也就是其上并不运行中断和程序。
+ */
 static DECLARE_BITMAP(cpu_present_bits, CONFIG_NR_CPUS) __read_mostly;
 const struct cpumask *const cpu_present_mask = to_cpumask(cpu_present_bits);
 EXPORT_SYMBOL(cpu_present_mask);

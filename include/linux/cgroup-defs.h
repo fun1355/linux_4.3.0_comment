@@ -89,6 +89,9 @@ enum {
  * Fields marked with "PI:" are public and immutable and may be accessed
  * directly without synchronization.
  */
+/**
+ * 各子系统的CGROUP状态
+ */
 struct cgroup_subsys_state {
 	/* PI: the cgroup that this css is attached to */
 	struct cgroup *cgroup;
@@ -133,6 +136,9 @@ struct cgroup_subsys_state {
  * object and speeds up fork()/exit(), since a single inc/dec and a
  * list_add()/del() can bump the reference count on the entire cgroup
  * set for a task.
+ */
+/**
+ * cgroup_subsys_state状态集合，每个进程有这样一个集合。
  */
 struct css_set {
 	/* Reference count */

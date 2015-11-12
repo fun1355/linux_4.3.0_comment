@@ -513,12 +513,17 @@ void notrace cpu_init(void)
 
 u32 __cpu_logical_map[NR_CPUS] = { [0 ... NR_CPUS-1] = MPIDR_INVALID };
 
+/**
+ * 设置boot阶段的主CPU
+ */
 void __init smp_setup_processor_id(void)
 {
 	int i;
+	//从控制寄存器中读入当前CPU号
 	u32 mpidr = is_smp() ? read_cpuid_mpidr() & MPIDR_HWID_BITMASK : 0;
 	u32 cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
 
+	//设置0号逻辑CPU对应的物理CPU
 	cpu_logical_map(0) = cpu;
 	for (i = 1; i < nr_cpu_ids; ++i)
 		cpu_logical_map(i) = i == cpu ? 0 : i;
@@ -528,6 +533,7 @@ void __init smp_setup_processor_id(void)
 	 * using percpu variable early, for example, lockdep will
 	 * access percpu variable inside lock_release
 	 */
+	//为了避免访问percpu数据出现异常
 	set_my_cpu_offset(0);
 
 	pr_info("Booting Linux on physical CPU 0x%x\n", mpidr);

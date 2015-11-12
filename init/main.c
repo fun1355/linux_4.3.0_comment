@@ -494,6 +494,10 @@ static void __init mm_init(void)
 	ioremap_huge_init();
 }
 
+/**
+ * 内核初始化，在ARM架构中，从__mmap_switched汇编函数中调用此函数。
+ * asmlinkage支持从汇编调用此函数
+ */
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
@@ -503,19 +507,37 @@ asmlinkage __visible void __init start_kernel(void)
 	 * Need to run as early as possible, to initialize the
 	 * lockdep hash:
 	 */
+	/**
+	 * 初始化lockdep诊断功能
+	 * 主要是初始化它用到的哈希表
+	 */
 	lockdep_init();
+	//设置init任务的堆栈魔法数，用于故障诊断
 	set_task_stack_end_magic(&init_task);
+	//设置启动CPU，ARM架构也支持从非0 CPU启动了
 	smp_setup_processor_id();
+	/**
+	 * 初始化内核对象跟踪模块用到的哈希表及自旋锁
+	 */
 	debug_objects_early_init();
 
 	/*
 	 * Set up the the initial canary ASAP:
 	 */
+	/**
+	 * 在堆栈中放入"金丝雀"，这种小动物对矿山上的有毒物质很敏感
+	 * 用于侦测堆栈攻击，防止攻击代码修改返回地址。
+	 */
 	boot_init_stack_canary();
 
+	/**
+	 * 初始化cgroup子系统
+	 */
 	cgroup_init_early();
 
+	//关中断，
 	local_irq_disable();
+	//诊断用，表示目前当前处于boot阶段，并且中断被关闭了。
 	early_boot_irqs_disabled = true;
 
 /*

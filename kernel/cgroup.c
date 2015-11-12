@@ -5041,6 +5041,9 @@ static void __init cgroup_init_subsys(struct cgroup_subsys *ss, bool early)
  * Initialize cgroups at system boot, and initialize any
  * subsystems that request early init.
  */
+/**
+ * 初始化idle进程的cgroup数据结构。
+ */
 int __init cgroup_init_early(void)
 {
 	static struct cgroup_sb_opts __initdata opts;

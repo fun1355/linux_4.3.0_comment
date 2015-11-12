@@ -4013,6 +4013,9 @@ out_restore:
 	raw_local_irq_restore(flags);
 }
 
+/**
+ * 初始化lockdep，该模块用于死锁检测
+ */
 void lockdep_init(void)
 {
 	int i;
@@ -4023,9 +4026,16 @@ void lockdep_init(void)
 	 * call lockdep_init() from the start_kernel() itself,
 	 * and we want to initialize the hashes only once:
 	 */
+	/**
+	 * 某些体系结构有自己的start_kernel函数，可能重复调用lockdep_init
+	 * 如果已经调用过此函数，则退出
+	 */
 	if (lockdep_initialized)
 		return;
 
+	/**
+	 * 初始化本模块用到的两个哈希表中，哈希桶所用的链表。
+	 */
 	for (i = 0; i < CLASSHASH_SIZE; i++)
 		INIT_LIST_HEAD(classhash_table + i);
 

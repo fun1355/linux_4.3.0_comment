@@ -1004,13 +1004,19 @@ static inline void debug_objects_selftest(void) { }
  * the static object pool objects into the poll list. After this call
  * the object tracker is fully operational.
  */
+/**
+ * 对象跟踪模块会在内核中注入代码，跟踪对象的生命周期
+ * 并验证在这些对象上的操作是否合法。
+ */
 void __init debug_objects_early_init(void)
 {
 	int i;
 
+	//初始化保护哈希桶的自旋锁
 	for (i = 0; i < ODEBUG_HASH_SIZE; i++)
 		raw_spin_lock_init(&obj_hash[i].lock);
 
+	//将初始静态节点添加到obj_pool中。
 	for (i = 0; i < ODEBUG_POOL_SIZE; i++)
 		hlist_add_head(&obj_static_pool[i].node, &obj_pool);
 }

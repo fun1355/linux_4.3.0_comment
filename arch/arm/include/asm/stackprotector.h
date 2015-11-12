@@ -23,14 +23,19 @@ extern unsigned long __stack_chk_guard;
  * NOTE: this must only be called from functions that never return,
  * and it must always be inlined.
  */
+/**
+ * 在初始任务的栈中，放入用于检测堆栈返回值攻击的canary值。
+ */
 static __always_inline void boot_init_stack_canary(void)
 {
 	unsigned long canary;
 
 	/* Try to get a semi random initial value. */
+	//生成随机的小整数，作为canary值
 	get_random_bytes(&canary, sizeof(canary));
 	canary ^= LINUX_VERSION_CODE;
 
+	//记录当前线程(idle线程)的canary值。
 	current->stack_canary = canary;
 	__stack_chk_guard = current->stack_canary;
 }

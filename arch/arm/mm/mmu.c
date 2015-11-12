@@ -424,6 +424,9 @@ void __set_fixmap(enum fixed_addresses idx, phys_addr_t phys, pgprot_t prot)
 /*
  * Adjust the PMD section entries according to the CPU in use.
  */
+/**
+ * 根据CPU类型，设置不同类型的PMD属性
+ */
 static void __init build_mem_type_table(void)
 {
 	struct cachepolicy *cp;
@@ -882,6 +885,9 @@ static void __init create_36bit_mapping(struct map_desc *md,
  * offsets, and we take full advantage of sections and
  * supersections.
  */
+/**
+ * 创建页面映射
+ */
 static void __init create_mapping(struct map_desc *md)
 {
 	unsigned long addr, length, end;
@@ -889,12 +895,14 @@ static void __init create_mapping(struct map_desc *md)
 	const struct mem_type *type;
 	pgd_t *pgd;
 
+	//除非是向量表，否则不能为用户态地址创建映射
 	if (md->virtual != vectors_base() && md->virtual < TASK_SIZE) {
 		pr_warn("BUG: not creating mapping for 0x%08llx at 0x%08lx in user region\n",
 			(long long)__pfn_to_phys((u64)md->pfn), md->virtual);
 		return;
 	}
 
+	//试图在vmalloc区间创建设备映射
 	if ((md->type == MT_DEVICE || md->type == MT_ROM) &&
 	    md->virtual >= PAGE_OFFSET && md->virtual < FIXADDR_START &&
 	    (md->virtual < VMALLOC_START || md->virtual >= VMALLOC_END)) {
@@ -908,7 +916,7 @@ static void __init create_mapping(struct map_desc *md)
 	/*
 	 * Catch 36-bit addresses
 	 */
-	if (md->pfn >= 0x100000) {
+	if (md->pfn >= 0x100000) {//需要创建36位映射
 		create_36bit_mapping(md, type);
 		return;
 	}
@@ -918,6 +926,7 @@ static void __init create_mapping(struct map_desc *md)
 	phys = __pfn_to_phys(md->pfn);
 	length = PAGE_ALIGN(md->length + (md->virtual & ~PAGE_MASK));
 
+	//参数不大合法
 	if (type->prot_l1 == 0 && ((addr | phys | length) & ~SECTION_MASK)) {
 		pr_warn("BUG: map for 0x%08llx at 0x%08lx can not be mapped using pages, ignoring.\n",
 			(long long)__pfn_to_phys(md->pfn), addr);
@@ -926,7 +935,7 @@ static void __init create_mapping(struct map_desc *md)
 
 	pgd = pgd_offset_k(addr);
 	end = addr + length;
-	do {
+	do {//以2m为单位进行映射
 		unsigned long next = pgd_addr_end(addr, end);
 
 		alloc_init_pud(pgd, addr, next, phys, type);
@@ -1115,20 +1124,22 @@ void __init sanity_check_meminfo(void)
 	struct memblock_region *reg;
 	bool should_use_highmem = false;
 
+	//遍历内存块
 	for_each_memblock(memory, reg) {
 		phys_addr_t block_start = reg->base;
 		phys_addr_t block_end = reg->base + reg->size;
 		phys_addr_t size_limit = reg->size;
 
-		if (reg->base >= vmalloc_limit)
+		if (reg->base >= vmalloc_limit)//高端内存
 			highmem = 1;
 		else
 			size_limit = vmalloc_limit - reg->base;
 
 
+		//不允许高端内存，或者有别名问题
 		if (!IS_ENABLED(CONFIG_HIGHMEM) || cache_is_vipt_aliasing()) {
 
-			if (highmem) {
+			if (highmem) {//这种情况下需要忽略高端内存，不然映射后可能导致别名。
 				pr_notice("Ignoring RAM at %pa-%pa (!CONFIG_HIGHMEM)\n",
 					  &block_start, &block_end);
 				memblock_remove(reg->base, reg->size);
@@ -1136,7 +1147,7 @@ void __init sanity_check_meminfo(void)
 				continue;
 			}
 
-			if (reg->size > size_limit) {
+			if (reg->size > size_limit) {//跨越vmalloc区了，要截断区域将它看作两块内存。
 				phys_addr_t overlap_size = reg->size - size_limit;
 
 				pr_notice("Truncating RAM at %pa-%pa to -%pa",
@@ -1204,6 +1215,9 @@ static inline void prepare_page_table(void)
 	/*
 	 * Clear out all the mappings below the kernel image.
 	 */
+	/**
+	 * 将内核映像下面的所有PMD清空。
+	 */
 	for (addr = 0; addr < MODULES_VADDR; addr += PMD_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
@@ -1211,6 +1225,10 @@ static inline void prepare_page_table(void)
 	/* The XIP kernel is mapped in the module area -- skip over it */
 	addr = ((unsigned long)_etext + PMD_SIZE - 1) & PMD_MASK;
 #endif
+	/**
+	 * 将内核空间以前的所有PMD清空。
+	 * 一般是0xc000000以前的所有地址。
+	 */
 	for ( ; addr < PAGE_OFFSET; addr += PMD_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
@@ -1224,6 +1242,11 @@ static inline void prepare_page_table(void)
 	/*
 	 * Clear out all the kernel space mappings, except for the first
 	 * memory bank, up to the vmalloc region.
+	 */
+	/**
+	 * 从第一个内存条的结束地址，到vmalloc开始地址处的PMD全部清空。
+	 * 在ARM架构中，如果不小心映射了不存在的物理地址，全将系统挂死。
+	 * 这里将PMD清空，可以确保进入异常而不是挂死。
 	 */
 	for (addr = __phys_to_virt(end);
 	     addr < VMALLOC_START; addr += PMD_SIZE)
@@ -1274,6 +1297,7 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	/*
 	 * Allocate the vector page early.
 	 */
+	//分配向量表内存
 	vectors = early_alloc(PAGE_SIZE * 2);
 
 	/**
@@ -1284,6 +1308,7 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	/*
 	 * Clear page table except top pmd used by early fixmaps
 	 */
+	//清空vmalloc开始区域到kmap区域的PMD
 	for (addr = VMALLOC_START; addr < (FIXADDR_TOP & PMD_MASK); addr += PMD_SIZE)
 		pmd_clear(pmd_off_k(addr));
 
@@ -1322,6 +1347,7 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	 * location (0xffff0000).  If we aren't using high-vectors, also
 	 * create a mapping at the low-vectors virtual address.
 	 */
+	//创建一个映射项，将向量表映射到0xffff0000(实际上可能使用0x00000000)
 	map.pfn = __phys_to_pfn(virt_to_phys(vectors));
 	map.virtual = 0xffff0000;
 	map.length = PAGE_SIZE;
@@ -1332,7 +1358,9 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 #endif
 	create_mapping(&map);
 
+	//使用低端向量表
 	if (!vectors_high()) {
+		//将向量表映射到地址0x00000000
 		map.virtual = 0;
 		map.length = PAGE_SIZE * 2;
 		map.type = MT_LOW_VECTORS;
@@ -1349,7 +1377,7 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	/*
 	 * Ask the machine support to map in the statically mapped devices.
 	 */
-	if (mdesc->map_io)
+	if (mdesc->map_io)//体系结构要求的回调
 		mdesc->map_io();
 	else
 		debug_ll_io_init();
@@ -1364,6 +1392,7 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
 	 * any write-allocated cache lines in the vector page are written
 	 * back.  After this point, we can start to touch devices again.
 	 */
+	//清除tlb和缓存。
 	local_flush_tlb_all();
 	flush_cache_all();
 }

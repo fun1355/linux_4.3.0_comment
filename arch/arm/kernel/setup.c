@@ -238,6 +238,9 @@ static int __get_cpu_architecture(void)
 	return CPU_ARCH_ARMv7M;
 }
 #else
+/**
+ * 获取CPU架构，慢慢看不注释了。
+ */
 static int __get_cpu_architecture(void)
 {
 	int cpu_arch;
@@ -309,6 +312,10 @@ static int cpu_has_aliasing_icache(unsigned int arch)
 	return aliasing_icache;
 }
 
+/**
+ * 判断缓存类型
+ * 判断过程很容易，不过缓存类型对内核的影响大，好戏在后面。
+ */
 static void __init cacheid_init(void)
 {
 	unsigned int arch = cpu_architecture();
@@ -468,6 +475,11 @@ void notrace cpu_init(void)
 	 */
 	set_my_cpu_offset(per_cpu_offset(cpu));
 
+	/**
+	 * 调用procinfo中的_proc_init回调。
+	 * 例如cpu_v7_proc_init
+	 * 对v6,v7架构来说什么都不做。
+	 */
 	cpu_proc_init();
 
 	/*
@@ -618,16 +630,23 @@ static void __init setup_processor(void)
 	 * types.  The linker builds this table for us from the
 	 * entries in arch/arm/mm/proc-*.S
 	 */
+	/**
+	 * 根据CPUID查找处理器类型
+	 * 还记得初始化过程中，汇编的查找过程么?
+	 */
 	list = lookup_processor_type(read_cpuid_id());
-	if (!list) {
+	if (!list) {//应该不可能找不到
 		pr_err("CPU configuration botched (ID %08x), unable to continue.\n",
 		       read_cpuid_id());
-		while (1);
+		while (1);//实在找不到就挂住吧。
 	}
 
 	cpu_name = list->cpu_name;
 	__cpu_architecture = __get_cpu_architecture();
 
+/**
+ * 记录下CPU相关的回调函数。
+ */
 #ifdef MULTI_CPU
 	processor = *list->proc;
 #endif
@@ -641,6 +660,9 @@ static void __init setup_processor(void)
 	cpu_cache = *list->cache;
 #endif
 
+	/**
+	 * balabala，输出一些信息
+	 */
 	pr_info("CPU: %s [%08x] revision %d (ARMv%s), cr=%08lx\n",
 		cpu_name, read_cpuid_id(), read_cpuid_id() & 15,
 		proc_arch[cpu_architecture()], get_cr());
@@ -663,6 +685,10 @@ static void __init setup_processor(void)
 
 	elf_hwcap_fixup();
 
+	/**
+	 * 获得缓存类型，并保存到cacheid中
+	 * 缓存类型方面的知识，需要一本书才说得清:(
+	 */
 	cacheid_init();
 	/**
 	 * 初始化CPU在各种模式下使用的栈空间
@@ -993,6 +1019,9 @@ void __init setup_arch(char **cmdline_p)
 	early_paging_init(mdesc);
 #endif
 	setup_dma_zone(mdesc);
+	/**
+	 * 对meminfo中的各个内存条信息进行合理性检查
+	 */
 	sanity_check_meminfo();
 	arm_memblock_init(mdesc);
 

@@ -363,10 +363,12 @@ static inline void smp_prepare_cpus(unsigned int maxcpus) { }
  */
 static void __init setup_command_line(char *command_line)
 {
+	//原始命令行
 	saved_command_line =
 		memblock_virt_alloc(strlen(boot_command_line) + 1, 0);
 	initcall_command_line =
 		memblock_virt_alloc(strlen(boot_command_line) + 1, 0);
+	//用于参数解析的命令行。
 	static_command_line = memblock_virt_alloc(strlen(command_line) + 1, 0);
 	strcpy(saved_command_line, boot_command_line);
 	strcpy(static_command_line, command_line);
@@ -558,16 +560,21 @@ asmlinkage __visible void __init start_kernel(void)
 	//处理CPU体系架构相关的事务。
 	setup_arch(&command_line);
 	mm_init_cpumask(&init_mm);
+	//保存命令行参数
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
+	//初始化每cpu数据
 	setup_per_cpu_areas();
+	//体系结构相关的SMP初始化，还是设置每cpu数据相关的东西
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
 
 	build_all_zonelists(NULL, NULL);
 	page_alloc_init();
 
 	pr_notice("Kernel command line: %s\n", boot_command_line);
+	//解析内核参数，第一次解析
 	parse_early_param();
+	//第二次解析
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
 				  __stop___param - __start___param,
@@ -594,6 +601,7 @@ asmlinkage __visible void __init start_kernel(void)
 	 * timer interrupt). Full topology setup happens at smp_init()
 	 * time - but meanwhile we still have a functioning scheduler.
 	 */
+	//初始化调度器
 	sched_init();
 	/*
 	 * Disable preemption - early bootup scheduling is extremely

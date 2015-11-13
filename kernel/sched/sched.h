@@ -233,6 +233,10 @@ struct cfs_bandwidth {
 };
 
 /* task group related information */
+/**
+ * 任务组
+ * 用于支持cgroup的CPU资源控制
+ */
 struct task_group {
 	struct cgroup_subsys_state css;
 

@@ -4617,6 +4617,10 @@ static void setup_zone_migrate_reserve(struct zone *zone)
  * up by free_all_bootmem() once the early boot process is
  * done. Non-atomic initialization, single-pass.
  */
+/**
+ * 将zone中的页框PG_reserved置位。表示该页不可用。
+ * 同时初始化页框中其他值。
+ */
 void __meminit memmap_init_zone(unsigned long size, int nid, unsigned long zone,
 		unsigned long start_pfn, enum memmap_context context)
 {
@@ -4908,8 +4912,10 @@ int __meminit init_currently_empty_zone(struct zone *zone,
 	ret = zone_wait_table_init(zone, size);
 	if (ret)
 		return ret;
+	//设置内存区中的zone个数，这个感觉有点奇怪
 	pgdat->nr_zones = zone_idx(zone) + 1;
 
+	//zone的起始pfn
 	zone->zone_start_pfn = zone_start_pfn;
 
 	mminit_dprintk(MMINIT_TRACE, "memmap_init",
@@ -4918,6 +4924,7 @@ int __meminit init_currently_empty_zone(struct zone *zone,
 			(unsigned long)zone_idx(zone),
 			zone_start_pfn, (zone_start_pfn + size));
 
+	//初始化free_area链表，并将空闲页面数量设置为0.
 	zone_init_free_lists(zone);
 
 	return 0;
@@ -5335,6 +5342,7 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat)
 	unsigned long zone_start_pfn = pgdat->node_start_pfn;
 	int ret;
 
+	//初始化节区的管理结构。
 	pgdat_resize_init(pgdat);
 #ifdef CONFIG_NUMA_BALANCING
 	spin_lock_init(&pgdat->numabalancing_migrate_lock);
@@ -5345,6 +5353,7 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat)
 	init_waitqueue_head(&pgdat->pfmemalloc_wait);
 	pgdat_page_ext_init(pgdat);
 
+	//遍历所有zone对其进行处理
 	for (j = 0; j < MAX_NR_ZONES; j++) {
 		struct zone *zone = pgdat->node_zones + j;
 		unsigned long size, realsize, freesize, memmap_pages;
@@ -5397,11 +5406,13 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat)
 						/ 100;
 		zone->min_slab_pages = (freesize * sysctl_min_slab_ratio) / 100;
 #endif
+		//初始化zone的数据。
 		zone->name = zone_names[j];
 		spin_lock_init(&zone->lock);
 		spin_lock_init(&zone->lru_lock);
 		zone_seqlock_init(zone);
 		zone->zone_pgdat = pgdat;
+		//初始化zone的每cpu缓存数据
 		zone_pcp_init(zone);
 
 		/* For bootup, initialized properly in watermark setup */
@@ -5413,9 +5424,11 @@ static void __paginginit free_area_init_core(struct pglist_data *pgdat)
 
 		set_pageblock_order();
 		setup_usemap(pgdat, zone, zone_start_pfn, size);
+		//初始化zone的free_area结构体。
 		ret = init_currently_empty_zone(zone, zone_start_pfn,
 						size, MEMMAP_EARLY);
 		BUG_ON(ret);
+		//设置所有页框的PG_reserved位。
 		memmap_init(size, nid, j, zone_start_pfn);
 		zone_start_pfn += size;
 	}
@@ -5474,6 +5487,7 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 	WARN_ON(pgdat->nr_zones || pgdat->classzone_idx);
 
 	reset_deferred_meminit(pgdat);
+	//设置内存区的节点号和起始pfn
 	pgdat->node_id = nid;
 	pgdat->node_start_pfn = node_start_pfn;
 #ifdef CONFIG_HAVE_MEMBLOCK_NODE_MAP
@@ -5482,9 +5496,13 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 		(u64)start_pfn << PAGE_SHIFT,
 		end_pfn ? ((u64)end_pfn << PAGE_SHIFT) - 1 : 0);
 #endif
+	/**
+	 * 初始化节点中每个zone的大小和空洞。
+	 */
 	calculate_node_totalpages(pgdat, start_pfn, end_pfn,
 				  zones_size, zholes_size);
 
+	//设置节点的node_mem_map
 	alloc_node_mem_map(pgdat);
 #ifdef CONFIG_FLAT_NODE_MEM_MAP
 	printk(KERN_DEBUG "free_area_init_node: node %d, pgdat %08lx, node_mem_map %08lx\n",
@@ -5492,6 +5510,7 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 		(unsigned long)pgdat->node_mem_map);
 #endif
 
+	//初始化zone，设置zone的free_area链表，标记所有页面不可用。
 	free_area_init_core(pgdat);
 }
 

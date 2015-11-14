@@ -568,7 +568,9 @@ asmlinkage __visible void __init start_kernel(void)
 	//体系结构相关的SMP初始化，还是设置每cpu数据相关的东西
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
 
+	//继续初始化伙伴系统中的pglist_data，重点是初始化它的node_zonelist成员
 	build_all_zonelists(NULL, NULL);
+	//为CPU热插拨注册内存通知链
 	page_alloc_init();
 
 	pr_notice("Kernel command line: %s\n", boot_command_line);
@@ -590,9 +592,12 @@ asmlinkage __visible void __init start_kernel(void)
 	 * kmem_cache_init()
 	 */
 	setup_log_buf(0);
+	//进程pid管理用到的数据结构初始化。
 	pidhash_init();
 	vfs_caches_init_early();
+	//对异常表进行排序，以减少异常修复入口的查找时间
 	sort_main_extable();
+	//do nothing
 	trap_init();
 	mm_init();
 
@@ -612,6 +617,7 @@ asmlinkage __visible void __init start_kernel(void)
 		 "Interrupts were enabled *very* early, fixing it\n"))
 		local_irq_disable();
 	idr_init_cache();
+	//初始化cpu相关的rcu数据结构。注册rcu回调。
 	rcu_init();
 
 	/* trace_printk() and trace points may be used after this */
@@ -620,7 +626,9 @@ asmlinkage __visible void __init start_kernel(void)
 	context_tracking_init();
 	radix_tree_init();
 	/* init some links before init_ISA_irqs() */
+	//中断亲和性相关的初始化。
 	early_irq_init();
+	//中断初始化，注册bad_irq_desc
 	init_IRQ();
 	/**
 	 * 初始化时钟

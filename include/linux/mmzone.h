@@ -332,6 +332,7 @@ struct zone {
 	/* Read-mostly fields */
 
 	/* zone watermarks, access with *_wmark_pages(zone) macros */
+	//各种级别的水线需要保留的内存页面数量
 	unsigned long watermark[NR_WMARK];
 
 	/*
@@ -423,6 +424,7 @@ struct zone {
 	 * adjust_managed_page_count() should be used instead of directly
 	 * touching zone->managed_pages and totalram_pages.
 	 */
+	//该zone管理的页面数量
 	unsigned long		managed_pages;
 	unsigned long		spanned_pages;
 	unsigned long		present_pages;
@@ -650,9 +652,15 @@ static inline bool zone_is_empty(struct zone *zone)
  */
 
 
+/**
+ * 描述内存节点的备用zone列表的描述符，性能优化用
+ */
 struct zonelist_cache {
+	//zone所属的节点id
 	unsigned short z_to_n[MAX_ZONES_PER_ZONELIST];		/* zone->nid */
+	//相应的zone是否为full
 	DECLARE_BITMAP(fullzones, MAX_ZONES_PER_ZONELIST);	/* zone full? */
+	//最后检查的时间
 	unsigned long last_full_zap;		/* when last zap'd (jiffies) */
 };
 #else
@@ -664,8 +672,13 @@ struct zonelist_cache;
  * This struct contains information about a zone in a zonelist. It is stored
  * here to avoid dereferences into large structures and lookups of tables
  */
+/**
+ * 对zone的引用
+ */
 struct zoneref {
+	//实际引用的zone指针
 	struct zone *zone;	/* Pointer to actual zone */
+	//在引用数组中的索引
 	int zone_idx;		/* zone_idx(zoneref->zone) */
 };
 
@@ -686,10 +699,17 @@ struct zoneref {
  * zonelist_zone_idx()	- Return the index of the zone for an entry
  * zonelist_node_idx()	- Return the index of the node for an entry
  */
+/**
+ * 用于内存分配的zone列表
+ */
 struct zonelist {
 	struct zonelist_cache *zlcache_ptr;		     // NULL or &zlcache
+	/**
+	 * 最大节点数*每个节点的zone数量，对所有zone进行引用。
+	 */
 	struct zoneref _zonerefs[MAX_ZONES_PER_ZONELIST + 1];
 #ifdef CONFIG_NUMA
+	//用于优化，通过位图指示相应的zone是否有内存可用
 	struct zonelist_cache zlcache;			     // optional ...
 #endif
 };
@@ -711,8 +731,19 @@ extern struct page *mem_map;
  * per-zone basis.
  */
 struct bootmem_data;
+/**
+ * 内存区域，在非连续内存模型中，代表一块内存bank
+ * 在NUMA系统中，一般表示一个NUMA节点。
+ */
 typedef struct pglist_data {
 	struct zone node_zones[MAX_NR_ZONES];
+	/**
+	 * 元素0:
+	 *     当前节点中，每个zone的备份列表。
+	 *     当前节点的zone中无可用内存时，会向这些备用节点进行分配。
+	 * 元素1:
+	 *     当前节点中所有zone列表
+	 */
 	struct zonelist node_zonelists[MAX_ZONELISTS];
 	int nr_zones;
 #ifdef CONFIG_FLAT_NODE_MEM_MAP	/* means !SPARSEMEM */

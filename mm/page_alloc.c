@@ -3590,6 +3590,7 @@ EXPORT_SYMBOL_GPL(nr_free_buffer_pages);
  * nr_free_pagecache_pages() counts the number of pages which are beyond the
  * high watermark within all zones.
  */
+//在高水线上面的空页数
 unsigned long nr_free_pagecache_pages(void)
 {
 	return nr_free_zone_pages(gfp_zone(GFP_HIGHUSER_MOVABLE));
@@ -3868,16 +3869,20 @@ static void zoneref_set_zone(struct zone *zone, struct zoneref *zoneref)
  *
  * Add all populated zones of a node to the zonelist.
  */
+//将节点的zone添加到其他节点的备用列表中
 static int build_zonelists_node(pg_data_t *pgdat, struct zonelist *zonelist,
 				int nr_zones)
 {
 	struct zone *zone;
+	//从最后一个zone开始，当然要优先保护低地址的dma，normal区了。
 	enum zone_type zone_type = MAX_NR_ZONES;
 
 	do {
 		zone_type--;
+		//待加到备用列表中的zone
 		zone = pgdat->node_zones + zone_type;
-		if (populated_zone(zone)) {
+		if (populated_zone(zone)) {//这个zone上有内存
+			//加到备用列表中
 			zoneref_set_zone(zone,
 				&zonelist->_zonerefs[nr_zones++]);
 			check_highest_zone(zone_type);
@@ -4025,39 +4030,41 @@ static int find_next_best_node(int node, nodemask_t *used_node_mask)
 	const struct cpumask *tmp = cpumask_of_node(0);
 
 	/* Use the local node if we haven't already */
+	//当然优先从当前节点开始查找了。
 	if (!node_isset(node, *used_node_mask)) {
 		node_set(node, *used_node_mask);
 		return node;
 	}
 
+	//遍历所有节点
 	for_each_node_state(n, N_MEMORY) {
 
 		/* Don't want a node to appear more than once */
-		if (node_isset(n, *used_node_mask))
+		if (node_isset(n, *used_node_mask))//已经在备用列表中了，下一个
 			continue;
 
 		/* Use the distance array to find the distance */
-		val = node_distance(node, n);
+		val = node_distance(node, n);//计算节点之间的距离
 
 		/* Penalize nodes under us ("prefer the next node") */
-		val += (n < node);
+		val += (n < node);//如果是前面的节点，加一点距离，优先使用后面的节点
 
 		/* Give preference to headless and unused nodes */
 		tmp = cpumask_of_node(n);
-		if (!cpumask_empty(tmp))
+		if (!cpumask_empty(tmp))//没有设置CPU亲和性的?
 			val += PENALTY_FOR_NODE_WITH_CPUS;
 
 		/* Slight preference for less loaded node */
-		val *= (MAX_NODE_LOAD*MAX_NUMNODES);
+		val *= (MAX_NODE_LOAD*MAX_NUMNODES);//考虑该节点的负载
 		val += node_load[n];
 
-		if (val < min_val) {
+		if (val < min_val) {//找值最小的，即最优的节点
 			min_val = val;
 			best_node = n;
 		}
 	}
 
-	if (best_node >= 0)
+	if (best_node >= 0)//存在可用节点
 		node_set(best_node, *used_node_mask);
 
 	return best_node;
@@ -4069,15 +4076,20 @@ static int find_next_best_node(int node, nodemask_t *used_node_mask)
  * This results in maximum locality--normal zone overflows into local
  * DMA zone, if any--but risks exhausting DMA zone.
  */
+//按内存节点顺序排列zone备用列表
 static void build_zonelists_in_node_order(pg_data_t *pgdat, int node)
 {
 	int j;
 	struct zonelist *zonelist;
 
+	//备用zone列表指针
 	zonelist = &pgdat->node_zonelists[0];
+	//找到已经在列表中的zone数量，j是下一个可用索引
 	for (j = 0; zonelist->_zonerefs[j].zone != NULL; j++)
 		;
+	//将备用节点中的zone保存到最后一个可用位置
 	j = build_zonelists_node(NODE_DATA(node), zonelist, j);
+	//将后面的备用列表置为空。
 	zonelist->_zonerefs[j].zone = NULL;
 	zonelist->_zonerefs[j].zone_idx = 0;
 }
@@ -4090,7 +4102,9 @@ static void build_thisnode_zonelists(pg_data_t *pgdat)
 	int j;
 	struct zonelist *zonelist;
 
+	//本节点自己的zone列表
 	zonelist = &pgdat->node_zonelists[1];
+	//构建zone列表，当指定GFP_THISNODE时，使用本节点的zone列表进行分配。
 	j = build_zonelists_node(pgdat, zonelist, 0);
 	zonelist->_zonerefs[j].zone = NULL;
 	zonelist->_zonerefs[j].zone_idx = 0;
@@ -4104,6 +4118,9 @@ static void build_thisnode_zonelists(pg_data_t *pgdat)
  */
 static int node_order[MAX_NUMNODES];
 
+/**
+ * 以zone类型排列节点的备用列表
+ */
 static void build_zonelists_in_zone_order(pg_data_t *pgdat, int nr_nodes)
 {
 	int pos, j, node;
@@ -4113,17 +4130,20 @@ static void build_zonelists_in_zone_order(pg_data_t *pgdat, int nr_nodes)
 
 	zonelist = &pgdat->node_zonelists[0];
 	pos = 0;
+	//从高端zone向低端zone遍历。
 	for (zone_type = MAX_NR_ZONES - 1; zone_type >= 0; zone_type--) {
-		for (j = 0; j < nr_nodes; j++) {
-			node = node_order[j];
+		for (j = 0; j < nr_nodes; j++) {//处理所有备用节点
+			node = node_order[j];//前面已经按距离、负载等因素将节点排序了。
 			z = &NODE_DATA(node)->node_zones[zone_type];
-			if (populated_zone(z)) {
+			if (populated_zone(z)) {//这个zone上有内存
+				//记录到备用列表中
 				zoneref_set_zone(z,
 					&zonelist->_zonerefs[pos++]);
 				check_highest_zone(zone_type);
 			}
 		}
 	}
+	//将最后一个备用索引置空。
 	zonelist->_zonerefs[pos].zone = NULL;
 	zonelist->_zonerefs[pos].zone_idx = 0;
 }
@@ -4155,9 +4175,13 @@ static int default_zonelist_order(void)
 
 static void set_zonelist_order(void)
 {
-	if (user_zonelist_order == ZONELIST_ORDER_DEFAULT)
+	if (user_zonelist_order == ZONELIST_ORDER_DEFAULT)//默认排列方式
+		/**
+		 * 在64位机器上，使用DMA的时间比较少，因此可以按节点排列而不考虑DMA OOM，这样可以使程序运行得快一点。
+		 * 32位机器上，则默认使用zone排列方式。
+		 */
 		current_zonelist_order = default_zonelist_order();
-	else
+	else//使用用户指定的排列方式
 		current_zonelist_order = user_zonelist_order;
 }
 
@@ -4171,6 +4195,7 @@ static void build_zonelists(pg_data_t *pgdat)
 	int order = current_zonelist_order;
 
 	/* initialize zonelists */
+	//将节点的两个zonelist初始化为空。
 	for (i = 0; i < MAX_ZONELISTS; i++) {
 		zonelist = pgdat->node_zonelists + i;
 		zonelist->_zonerefs[0].zone = NULL;
@@ -4186,11 +4211,16 @@ static void build_zonelists(pg_data_t *pgdat)
 	memset(node_order, 0, sizeof(node_order));
 	j = 0;
 
+	//查找备用节点
 	while ((node = find_next_best_node(local_node, &used_mask)) >= 0) {
 		/*
 		 * We don't want to pressure a particular node.
 		 * So adding penalty to the first node in same
 		 * distance group to make it round-robin.
+		 */
+		/**
+		 * 如果当前选中的节点的距离与前一个节点相同，那么将当前节点负载加一点，这样下一次就不容易再选中该节点
+		 * 避免该节点被造成太大的压力。
 		 */
 		if (node_distance(local_node, node) !=
 		    node_distance(local_node, prev_node))
@@ -4198,17 +4228,19 @@ static void build_zonelists(pg_data_t *pgdat)
 
 		prev_node = node;
 		load--;
+		//以节点进行排列
 		if (order == ZONELIST_ORDER_NODE)
 			build_zonelists_in_node_order(pgdat, node);
-		else
+		else//以zone类型进行排列，在这里记下节点顺序
 			node_order[j++] = node;	/* remember order */
 	}
 
-	if (order == ZONELIST_ORDER_ZONE) {
+	if (order == ZONELIST_ORDER_ZONE) {//按zone类型为序进行排列
 		/* calculate node order -- i.e., DMA last! */
 		build_zonelists_in_zone_order(pgdat, j);
 	}
 
+	//构建本节点自己的zone列表(前面构建的是备用列表)
 	build_thisnode_zonelists(pgdat);
 }
 
@@ -4219,10 +4251,14 @@ static void build_zonelist_cache(pg_data_t *pgdat)
 	struct zonelist_cache *zlc;
 	struct zoneref *z;
 
+	//备用zone列表
 	zonelist = &pgdat->node_zonelists[0];
 	zonelist->zlcache_ptr = zlc = &zonelist->zlcache;
+	//将所有备用zone的full标志清空，表示其内存可用。
 	bitmap_zero(zlc->fullzones, MAX_ZONES_PER_ZONELIST);
+	//遍历所有备用缓存
 	for (z = zonelist->_zonerefs; z->zone; z++)
+		//设置zone对应的节点id
 		zlc->z_to_n[z - zonelist->_zonerefs] = zonelist_node_idx(z);
 }
 
@@ -4335,10 +4371,13 @@ static int __build_all_zonelists(void *data)
 		build_zonelist_cache(self);
 	}
 
+	//遍历所有节点
 	for_each_online_node(nid) {
 		pg_data_t *pgdat = NODE_DATA(nid);
 
+		//构建两个zonelist，一个是备用zone列表，一个是节点自己的zone列表。
 		build_zonelists(pgdat);
+		//构建备份列表的zone位图，如果相应的zone已经没有可用内存，则将位图置1.
 		build_zonelist_cache(pgdat);
 	}
 
@@ -4378,8 +4417,11 @@ static int __build_all_zonelists(void *data)
 static noinline void __init
 build_all_zonelists_init(void)
 {
+	//构建备份zone列表
 	__build_all_zonelists(NULL);
+	//balabala,输出备份列表信息
 	mminit_verify_zonelist();
+	//设置当前进程的mems_allowed位图，允许当前进程在所有节点中分配内存。
 	cpuset_init_current_mems_allowed();
 }
 
@@ -4394,9 +4436,10 @@ build_all_zonelists_init(void)
  */
 void __ref build_all_zonelists(pg_data_t *pgdat, struct zone *zone)
 {
+	//设置zone排列方式，是按节点之间的距离还是按zone类型。
 	set_zonelist_order();
 
-	if (system_state == SYSTEM_BOOTING) {
+	if (system_state == SYSTEM_BOOTING) {//启动阶段
 		build_all_zonelists_init();
 	} else {
 #ifdef CONFIG_MEMORY_HOTPLUG
@@ -4405,9 +4448,11 @@ void __ref build_all_zonelists(pg_data_t *pgdat, struct zone *zone)
 #endif
 		/* we have to stop all cpus to guarantee there is no user
 		   of zonelist */
+		//停止所有CPU，并让这些CPU在关中断的状态下调用__build_all_zonelists
 		stop_machine(__build_all_zonelists, pgdat, NULL);
 		/* cpuset refresh routine should be here */
 	}
+	//计算所有zone中，在高水线的情况下，可用的内存页面数量。
 	vm_total_pages = nr_free_pagecache_pages();
 	/*
 	 * Disable grouping by mobility if the number of pages in the
@@ -4415,6 +4460,9 @@ void __ref build_all_zonelists(pg_data_t *pgdat, struct zone *zone)
 	 * more accurate, but expensive to check per-zone. This check is
 	 * made on memory-hotadd so a system can start with mobility
 	 * disabled and enable it later
+	 */
+	/**
+	 * 如果可用内存较少，就不打开页面移动功能。
 	 */
 	if (vm_total_pages < (pageblock_nr_pages * MIGRATE_TYPES))
 		page_group_by_mobility_disabled = 1;

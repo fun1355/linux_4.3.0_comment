@@ -36,6 +36,7 @@ static int cmp_ex(const void *a, const void *b)
 void sort_extable(struct exception_table_entry *start,
 		  struct exception_table_entry *finish)
 {
+	//这里的sort不需要递归，时间复杂度是O(n * log n)
 	sort(start, finish - start, sizeof(struct exception_table_entry),
 	     cmp_ex, NULL);
 }

@@ -415,17 +415,21 @@ static noinline void __init_refok rest_init(void)
 }
 
 /* Check for early params. */
+/**
+ * 对未修正的参数行中，某一项参数进行解析
+ */
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
 {
 	const struct obs_kernel_param *p;
 
+	//__setup_start,__setup_end保存了__setup，early_param宏定义的初始化函数
 	for (p = __setup_start; p < __setup_end; p++) {
-		if ((p->early && parameq(param, p->str)) ||
+		if ((p->early && parameq(param, p->str)) || 
 		    (strcmp(param, "console") == 0 &&
 		     strcmp(p->str, "earlycon") == 0)
 		) {
-			if (p->setup_func(val) != 0)
+			if (p->setup_func(val) != 0)//调用注册的回调
 				pr_warn("Malformed early option '%s'\n", param);
 		}
 	}
@@ -433,6 +437,7 @@ static int __init do_early_param(char *param, char *val,
 	return 0;
 }
 
+//解析参数行，并调用do_early_param对它进行处理
 void __init parse_early_options(char *cmdline)
 {
 	parse_args("early options", cmdline, NULL, 0, 0, 0, NULL,
@@ -440,15 +445,19 @@ void __init parse_early_options(char *cmdline)
 }
 
 /* Arch code calls this early on, or if not, just before other parsing. */
+/**
+ * 用未修正的原始参数进行解析
+ */
 void __init parse_early_param(void)
 {
 	static int done __initdata;
 	static char tmp_cmdline[COMMAND_LINE_SIZE] __initdata;
 
-	if (done)
+	if (done) //某些架构可能在架构相关代码中调用了，这里防止多次初始化。
 		return;
 
 	/* All fall through to do_early_param. */
+	//复制未修正的参数行，并对它进行解析。
 	strlcpy(tmp_cmdline, boot_command_line, COMMAND_LINE_SIZE);
 	parse_early_options(tmp_cmdline);
 	done = 1;
@@ -576,7 +585,7 @@ asmlinkage __visible void __init start_kernel(void)
 	pr_notice("Kernel command line: %s\n", boot_command_line);
 	//解析内核参数，第一次解析
 	parse_early_param();
-	//第二次解析
+	//第二次解析,static_command_line中是在第一阶段中未处理的参数
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
 				  __stop___param - __start___param,

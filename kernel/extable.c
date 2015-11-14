@@ -39,10 +39,15 @@ extern struct exception_table_entry __stop___ex_table[];
 u32 __initdata __visible main_extable_sort_needed = 1;
 
 /* Sort the kernel's built-in exception table */
+/**
+ * 对内核中的异常修复表进行排序
+ */
 void __init sort_main_extable(void)
 {
+	//这个条件一般是满足的
 	if (main_extable_sort_needed && __stop___ex_table > __start___ex_table) {
 		pr_notice("Sorting __ex_table...\n");
+		//对修复表进行排序
 		sort_extable(__start___ex_table, __stop___ex_table);
 	}
 }

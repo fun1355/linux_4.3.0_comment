@@ -4288,6 +4288,9 @@ static void __init rcu_dump_rcu_node_tree(struct rcu_state *rsp)
 	pr_cont("\n");
 }
 
+/**
+ * 初始化rcu系统
+ */
 void __init rcu_init(void)
 {
 	int cpu;

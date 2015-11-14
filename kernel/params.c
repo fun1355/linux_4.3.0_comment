@@ -117,6 +117,9 @@ static void param_check_unsafe(const struct kernel_param *kp)
 	}
 }
 
+/**
+ * 处理单个参数
+ */
 static int parse_one(char *param,
 		     char *val,
 		     const char *doing,
@@ -132,8 +135,8 @@ static int parse_one(char *param,
 	int err;
 
 	/* Find parameter */
-	for (i = 0; i < num_params; i++) {
-		if (parameq(param, params[i].name)) {
+	for (i = 0; i < num_params; i++) {//在参数区查找所有可用参数
+		if (parameq(param, params[i].name)) {//找到了
 			if (params[i].level < min_level
 			    || params[i].level > max_level)
 				return 0;
@@ -143,9 +146,12 @@ static int parse_one(char *param,
 				return -EINVAL;
 			pr_debug("handling %s with %p\n", param,
 				params[i].ops->set);
+			//锁住模块
 			kernel_param_lock(params[i].mod);
 			param_check_unsafe(&params[i]);
+			//调用模块的参数解析
 			err = params[i].ops->set(val, &params[i]);
+			//模块解锁
 			kernel_param_unlock(params[i].mod);
 			return err;
 		}
@@ -226,7 +232,7 @@ char *parse_args(const char *doing,
 	char *param, *val;
 
 	/* Chew leading spaces */
-	args = skip_spaces(args);
+	args = skip_spaces(args);//跳过前面的空格
 
 	if (*args)
 		pr_debug("doing %s, parsing ARGS: '%s'\n", doing, args);
@@ -235,13 +241,16 @@ char *parse_args(const char *doing,
 		int ret;
 		int irq_was_disabled;
 
+		//找下一个参数及其值
 		args = next_arg(args, &param, &val);
 		/* Stop at -- */
-		if (!val && strcmp(param, "--") == 0)
+		if (!val && strcmp(param, "--") == 0)//--表示注释，忽略后面的参数
 			return args;
 		irq_was_disabled = irqs_disabled();
+		//解析单个参数
 		ret = parse_one(param, val, doing, params, num,
 				min_level, max_level, arg, unknown);
+		//在解析过程中意外的打开了中断，这里警告。
 		if (irq_was_disabled && !irqs_disabled())
 			pr_warn("%s: option '%s' enabled irq's!\n",
 				doing, param);

@@ -85,10 +85,14 @@ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 	handle_IRQ(irq, regs);
 }
 
+/**
+ * 初始化irq
+ */
 void __init init_IRQ(void)
 {
 	int ret;
 
+	//执行中断控制器的初始化。
 	if (IS_ENABLED(CONFIG_OF) && !machine_desc->init_irq)
 		irqchip_init();
 	else

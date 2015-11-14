@@ -269,20 +269,26 @@ int __init early_irq_init(void)
 	int count, i, node = first_online_node;
 	struct irq_desc *desc;
 
+	//设置默认的中断亲和性位图
 	init_irq_default_affinity();
 
 	printk(KERN_INFO "NR_IRQS:%d\n", NR_IRQS);
 
+	//得到中断描述符数组及其大小
 	desc = irq_desc;
 	count = ARRAY_SIZE(irq_desc);
 
+	//设置所有中断的默认值
 	for (i = 0; i < count; i++) {
+		//记录每CPU上中断执行统计的结构
 		desc[i].kstat_irqs = alloc_percpu(unsigned int);
+		//分配亲和性位图
 		alloc_masks(&desc[i], GFP_KERNEL, node);
 		raw_spin_lock_init(&desc[i].lock);
 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
 		desc_set_defaults(i, &desc[i], node, NULL);
 	}
+	//arm上面什么都不做
 	return arch_early_irq_init();
 }
 

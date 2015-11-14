@@ -135,12 +135,17 @@ struct irq_domain;
  * @msi_desc:		MSI descriptor
  */
 struct irq_common_data {
+	//状态
 	unsigned int		state_use_accessors;
 #ifdef CONFIG_NUMA
+	//用于负载平衡
 	unsigned int		node;
 #endif
+	//中断私有数据
 	void			*handler_data;
+	//msi描述符
 	struct msi_desc		*msi_desc;
+	//中断亲和性
 	cpumask_var_t		affinity;
 };
 
@@ -159,15 +164,23 @@ struct irq_common_data {
  *			methods, to allow shared chip implementations
  */
 struct irq_data {
+	//预先计算好的，访问寄存器的位图。
 	u32			mask;
+	//中断编号
 	unsigned int		irq;
+	//硬件中断编号
 	unsigned long		hwirq;
+	//指向所有中断芯片共享数据的指针
 	struct irq_common_data	*common;
+	//中断控制芯片
 	struct irq_chip		*chip;
+	//将硬件中断编号转换为中断编号的域
 	struct irq_domain	*domain;
 #ifdef	CONFIG_IRQ_DOMAIN_HIERARCHY
+	//在支持多级控制域的时候，指向上级结构
 	struct irq_data		*parent_data;
 #endif
+	//平台特定的中断控制器数据
 	void			*chip_data;
 };
 

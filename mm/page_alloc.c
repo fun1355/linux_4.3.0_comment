@@ -6111,6 +6111,9 @@ void __init free_area_init(unsigned long *zones_size)
 			__pa(PAGE_OFFSET) >> PAGE_SHIFT, NULL);
 }
 
+/**
+ * CPU热插拨时的回调。
+ */
 static int page_alloc_cpu_notify(struct notifier_block *self,
 				 unsigned long action, void *hcpu)
 {
@@ -6142,6 +6145,9 @@ static int page_alloc_cpu_notify(struct notifier_block *self,
 
 void __init page_alloc_init(void)
 {
+	/**
+	 * 注册CPU热插拨侦听回调。
+	 */
 	hotcpu_notifier(page_alloc_cpu_notify, 0);
 }
 

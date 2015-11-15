@@ -965,6 +965,7 @@ static bool free_pages_prepare(struct page *page, unsigned int order)
 	return true;
 }
 
+//释放多个页面到内存中
 static void __free_pages_ok(struct page *page, unsigned int order)
 {
 	unsigned long flags;
@@ -981,6 +982,7 @@ static void __free_pages_ok(struct page *page, unsigned int order)
 	local_irq_restore(flags);
 }
 
+//将bootmem页面释放给伙伴系统。
 static void __init __free_pages_boot_core(struct page *page,
 					unsigned long pfn, unsigned int order)
 {
@@ -988,17 +990,28 @@ static void __init __free_pages_boot_core(struct page *page,
 	struct page *p = page;
 	unsigned int loop;
 
+	//数据预取
 	prefetchw(p);
+	//遍历所有页面
 	for (loop = 0; loop < (nr_pages - 1); loop++, p++) {
 		prefetchw(p + 1);
+		//清除其reserved标志，表示页面可用可交换
 		__ClearPageReserved(p);
-		set_page_count(p, 0);
+		set_page_count(p, 0);//将页面引用计数设置为0
 	}
+	/**
+	 * 前面的循环少了一页，这里将最后一页标志置位
+	 * 仅仅因为预取的关系，把程序复杂了，感觉不值。
+	 */
 	__ClearPageReserved(p);
 	set_page_count(p, 0);
 
+	//增加zone的页面计数
 	page_zone(page)->managed_pages += nr_pages;
+	//这里将第一个页面引用计数设置为1!!!!!
 	set_page_refcounted(page);
+	//将页面添加到zone的链表中。
+	//释放后，其引用计数又成0了，这里注意体会一下。
 	__free_pages(page, order);
 }
 
@@ -1917,8 +1930,12 @@ void mark_free_pages(struct zone *zone)
  * Free a 0-order page
  * cold == true ? free a cold page : free a hot page
  */
+/**
+ * 将单个页面释放给伙伴系统
+ */
 void free_hot_cold_page(struct page *page, bool cold)
 {
+	//页面所属的zone
 	struct zone *zone = page_zone(page);
 	struct per_cpu_pages *pcp;
 	unsigned long flags;
@@ -1948,12 +1965,15 @@ void free_hot_cold_page(struct page *page, bool cold)
 		migratetype = MIGRATE_MOVABLE;
 	}
 
+	//当前CPU的缓存
 	pcp = &this_cpu_ptr(zone->pageset)->pcp;
-	if (!cold)
+	if (!cold)//加到缓存的前面，保持其热度。
 		list_add(&page->lru, &pcp->lists[migratetype]);
-	else
+	else//否则加到后面
 		list_add_tail(&page->lru, &pcp->lists[migratetype]);
+	//缓存计数
 	pcp->count++;
+	//缓存中页面过多，还到链表中去.
 	if (pcp->count >= pcp->high) {
 		unsigned long batch = READ_ONCE(pcp->batch);
 		free_pcppages_bulk(zone, batch, pcp);
@@ -3298,12 +3318,15 @@ unsigned long get_zeroed_page(gfp_t gfp_mask)
 }
 EXPORT_SYMBOL(get_zeroed_page);
 
+/**
+ * 释放多个页面到伙伴系统
+ */
 void __free_pages(struct page *page, unsigned int order)
 {
-	if (put_page_testzero(page)) {
-		if (order == 0)
-			free_hot_cold_page(page, false);
-		else
+	if (put_page_testzero(page)) {//递减引用计数，如果为0表示没有人引用了。
+		if (order == 0)//如果是单个页
+			free_hot_cold_page(page, false);//将它放到hot池中，性能优化考虑。
+		else//否则直接放回链表中
 			__free_pages_ok(page, order);
 	}
 }

@@ -351,6 +351,7 @@ free_memmap(unsigned long start_pfn, unsigned long end_pfn)
 	/*
 	 * Convert start_pfn/end_pfn to a struct page pointer.
 	 */
+	//要释放的内存页帧描述符地址。
 	start_pg = pfn_to_page(start_pfn - 1) + 1;
 	end_pg = pfn_to_page(end_pfn - 1) + 1;
 
@@ -358,6 +359,7 @@ free_memmap(unsigned long start_pfn, unsigned long end_pfn)
 	 * Convert to physical addresses, and
 	 * round start upwards and end downwards.
 	 */
+	//将页帧地址对齐页边界，因为此时只能按页释放内存
 	pg = PAGE_ALIGN(__pa(start_pg));
 	pgend = __pa(end_pg) & PAGE_MASK;
 
@@ -365,12 +367,16 @@ free_memmap(unsigned long start_pfn, unsigned long end_pfn)
 	 * If there are free pages between these,
 	 * free the section of the memmap array.
 	 */
-	if (pg < pgend)
+	if (pg < pgend)//按页释放memmap对应的内存。
 		memblock_free_early(pg, pgend - pg);
 }
 
 /*
  * The mem_map array can get very big.  Free the unused area of the memory map.
+ */
+/**
+ * memmap数组是一个连续的数组，记录内存状态。
+ * 本函数将不内存空洞对应的memmap内存释放。积少成多也是不少的内存空间。
  */
 static void __init free_unused_memmap(void)
 {
@@ -381,7 +387,8 @@ static void __init free_unused_memmap(void)
 	 * This relies on each bank being in address order.
 	 * The banks are sorted previously in bootmem_init().
 	 */
-	for_each_memblock(memory, reg) {
+	for_each_memblock(memory, reg) {//遍历内存块
+		//找到该内存块的起始页帧号
 		start = memblock_region_memory_base_pfn(reg);
 
 #ifdef CONFIG_SPARSEMEM
@@ -403,7 +410,7 @@ static void __init free_unused_memmap(void)
 		 * If we had a previous bank, and there is a space
 		 * between the current bank and the previous, free it.
 		 */
-		if (prev_end && prev_end < start)
+		if (prev_end && prev_end < start)//与上一个内存块不连续，说明有空洞，释放memmap对应的内存。
 			free_memmap(prev_end, start);
 
 		/*
@@ -483,6 +490,9 @@ static void __init free_highpages(void)
  * memory is free.  This is done after various parts of the system have
  * claimed their memory after the kernel image.
  */
+/**
+ * 切换到伙伴系统了。
+ */
 void __init mem_init(void)
 {
 #ifdef CONFIG_HAVE_TCM
@@ -494,7 +504,9 @@ void __init mem_init(void)
 	set_max_mapnr(pfn_to_page(max_pfn) - mem_map);
 
 	/* this will put all unused low memory onto the freelists */
+	//释放内存空洞对应的memmap数组空间。
 	free_unused_memmap();
+	//将未用bootmem释放给伙伴系统。
 	free_all_bootmem();
 
 #ifdef CONFIG_SA1111

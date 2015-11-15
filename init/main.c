@@ -499,6 +499,7 @@ static void __init mm_init(void)
 	 * bigger than MAX_ORDER unless SPARSEMEM.
 	 */
 	page_ext_init_flatmem();
+	//将boot内存管理转换为伙伴内存管理
 	mem_init();
 	kmem_cache_init();
 	percpu_init_late();

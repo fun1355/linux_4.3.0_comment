@@ -6533,7 +6533,7 @@ __setup("hashdist=", set_hashdist);
  */
 void *__init alloc_large_system_hash(const char *tablename,
 				     unsigned long bucketsize,
-				     unsigned long numentries,
+				     unsigned long numentries,//缓存项的个数
 				     int scale,
 				     int flags,
 				     unsigned int *_hash_shift,
@@ -6546,12 +6546,12 @@ void *__init alloc_large_system_hash(const char *tablename,
 	void *table = NULL;
 
 	/* allow the kernel cmdline to have a say */
-	if (!numentries) {
+	if (!numentries) {//传递的缓存项数目为0，由内核决定分配多少项
 		/* round applicable memory size up to nearest megabyte */
 		numentries = nr_kernel_pages;
 
 		/* It isn't necessary when PAGE_SIZE >= 1MB */
-		if (PAGE_SHIFT < 20)
+		if (PAGE_SHIFT < 20)//每页小于1M，就根据内存有多少M来决定缓存项
 			numentries = round_up(numentries, (1<<20)/PAGE_SIZE);
 
 		/* limit to 1 bucket per 2^scale bytes of low memory */
@@ -6561,7 +6561,7 @@ void *__init alloc_large_system_hash(const char *tablename,
 			numentries <<= (PAGE_SHIFT - scale);
 
 		/* Make sure we've got at least a 0-order allocation.. */
-		if (unlikely(flags & HASH_SMALL)) {
+		if (unlikely(flags & HASH_SMALL)) {//至少分配一页
 			/* Makes no sense without HASH_EARLY */
 			WARN_ON(!(flags & HASH_EARLY));
 			if (!(numentries >> *_hash_shift)) {
@@ -6587,6 +6587,7 @@ void *__init alloc_large_system_hash(const char *tablename,
 
 	log2qty = ilog2(numentries);
 
+	//根据情况从bootmem,vmalloc,伙伴系统中分配内存。感觉这段代码还是晦涩了一点。
 	do {
 		size = bucketsize << log2qty;
 		if (flags & HASH_EARLY)

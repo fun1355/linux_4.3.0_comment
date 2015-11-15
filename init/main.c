@@ -503,6 +503,7 @@ static void __init mm_init(void)
 	kmem_cache_init();
 	percpu_init_late();
 	pgtable_init();
+	//初始化vmalloc用到的数据结构
 	vmalloc_init();
 	ioremap_huge_init();
 }
@@ -603,6 +604,7 @@ asmlinkage __visible void __init start_kernel(void)
 	setup_log_buf(0);
 	//进程pid管理用到的数据结构初始化。
 	pidhash_init();
+	//初始化目录项和索引节点缓存
 	vfs_caches_init_early();
 	//对异常表进行排序，以减少异常修复入口的查找时间
 	sort_main_extable();
@@ -644,17 +646,26 @@ asmlinkage __visible void __init start_kernel(void)
 	 */
 	tick_init();
 	rcu_init_nohz();
+	//初始化计时器
 	init_timers();
+	//高分辨率时钟初始化。
 	hrtimers_init();
+	//软中断初始化
 	softirq_init();
+	//初始化xtime
 	timekeeping_init();
+	//初始化硬件时钟并设置计时器，注册处理函数。
 	time_init();
+	//调度器使用的时间系统初始化。
 	sched_clock_postinit();
+	//剖析相关的初始化。
 	perf_event_init();
 	profile_init();
+	//smp中，为管理核间回调函数的初始化。
 	call_function_init();
 	WARN(!irqs_disabled(), "Interrupts were enabled early\n");
 	early_boot_irqs_disabled = false;
+	//中断已经初始化完毕，现在要开启控制台了，打开中断。
 	local_irq_enable();
 
 	kmem_cache_init_late();
@@ -664,11 +675,13 @@ asmlinkage __visible void __init start_kernel(void)
 	 * we've done PCI setups etc, and console_init() must be aware of
 	 * this. But we do want output early, in case something goes wrong.
 	 */
+	//初始化控制台。
 	console_init();
 	if (panic_later)
 		panic("Too many boot %s vars at `%s'", panic_later,
 		      panic_param);
 
+	//输出锁依赖信息
 	lockdep_info();
 
 	/*
@@ -676,7 +689,7 @@ asmlinkage __visible void __init start_kernel(void)
 	 * to self-test [hard/soft]-irqs on/off lock inversion bugs
 	 * too:
 	 */
-	locking_selftest();
+	locking_selftest();//测试锁依赖模块
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start && !initrd_below_start_ok &&
@@ -721,6 +734,7 @@ asmlinkage __visible void __init start_kernel(void)
 	page_writeback_init();
 	proc_root_init();
 	nsfs_init();
+	//初始化cpuset子系统。
 	cpuset_init();
 	cgroup_init();
 	taskstats_init_early();

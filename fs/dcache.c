@@ -3387,9 +3387,10 @@ static void __init dcache_init_early(void)
 	/* If hashes are distributed across NUMA nodes, defer
 	 * hash allocation until vmalloc space is available.
 	 */
-	if (hashdist)
+	if (hashdist)//缓存需要的空间很大，如果需要跨越多个node就延迟分配
 		return;
 
+	//在64位系统中，vmalloc空间很大，可以在这里分配大内存
 	dentry_hashtable =
 		alloc_large_system_hash("Dentry cache",
 					sizeof(struct hlist_bl_head),
@@ -3444,7 +3445,9 @@ EXPORT_SYMBOL(d_genocide);
 
 void __init vfs_caches_init_early(void)
 {
+	//初始化目录项缓存
 	dcache_init_early();
+	//初始化inode节点缓存。
 	inode_init_early();
 }
 

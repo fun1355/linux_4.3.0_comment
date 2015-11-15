@@ -1195,10 +1195,12 @@ void __init vm_area_register_early(struct vm_struct *vm, size_t align)
 
 void __init vmalloc_init(void)
 {
+	//vmalloc用到的红黑树和链表对象
 	struct vmap_area *va;
 	struct vm_struct *tmp;
 	int i;
 
+	//对所有cpu上的每CPU变量vmap_block_queue进行初始化。
 	for_each_possible_cpu(i) {
 		struct vmap_block_queue *vbq;
 		struct vfree_deferred *p;
@@ -1212,7 +1214,9 @@ void __init vmalloc_init(void)
 	}
 
 	/* Import existing vmlist entries. */
+	//遍历已经存在的vmlist
 	for (tmp = vmlist; tmp; tmp = tmp->next) {
+		//为这些节点构建红黑树
 		va = kzalloc(sizeof(struct vmap_area), GFP_NOWAIT);
 		va->flags = VM_VM_AREA;
 		va->va_start = (unsigned long)tmp->addr;

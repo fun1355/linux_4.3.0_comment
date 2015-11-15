@@ -1690,10 +1690,15 @@ static struct notifier_block hrtimers_nb = {
 	.notifier_call = hrtimer_cpu_notify,
 };
 
+/**
+ * 初始化高分辨率定时器。
+ */
 void __init hrtimers_init(void)
 {
+	//为当前CPU执行HR初始化
 	hrtimer_cpu_notify(&hrtimers_nb, (unsigned long)CPU_UP_PREPARE,
 			  (void *)(long)smp_processor_id());
+	//注册CPU热插拨事件回调
 	register_cpu_notifier(&hrtimers_nb);
 }
 

@@ -405,16 +405,18 @@ extern bool force_irqthreads;
 
 enum
 {
-	HI_SOFTIRQ=0,
-	TIMER_SOFTIRQ,
-	NET_TX_SOFTIRQ,
-	NET_RX_SOFTIRQ,
-	BLOCK_SOFTIRQ,
-	BLOCK_IOPOLL_SOFTIRQ,
-	TASKLET_SOFTIRQ,
-	SCHED_SOFTIRQ,
+	HI_SOFTIRQ=0,//高优先级软中断
+	TIMER_SOFTIRQ,//定时器软中断
+	NET_TX_SOFTIRQ, //网络发送软中断，回收发送内存
+	NET_RX_SOFTIRQ, //接收软中断
+	BLOCK_SOFTIRQ,  //块设备软中断
+	BLOCK_IOPOLL_SOFTIRQ, //块设备poll软中断
+	TASKLET_SOFTIRQ, //tasklet软中断
+	SCHED_SOFTIRQ, //调度软中断
+	//高精度时钟软中断，未用
 	HRTIMER_SOFTIRQ, /* Unused, but kept as tools rely on the
 			    numbering. Sigh! */
+	//RCU软中断
 	RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */
 
 	NR_SOFTIRQS

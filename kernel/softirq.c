@@ -631,10 +631,14 @@ void tasklet_hrtimer_init(struct tasklet_hrtimer *ttimer,
 }
 EXPORT_SYMBOL_GPL(tasklet_hrtimer_init);
 
+/**
+ * 初始化软中断
+ */
 void __init softirq_init(void)
 {
 	int cpu;
 
+	//初始化每CPU上的高级、普通tasklet链表
 	for_each_possible_cpu(cpu) {
 		per_cpu(tasklet_vec, cpu).tail =
 			&per_cpu(tasklet_vec, cpu).head;
@@ -642,6 +646,7 @@ void __init softirq_init(void)
 			&per_cpu(tasklet_hi_vec, cpu).head;
 	}
 
+	//注册tasklet软中断
 	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
 	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
 }

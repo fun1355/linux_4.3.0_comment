@@ -34,6 +34,7 @@
  * operations.
  *
  */
+//用于高精度定时器，以纳秒为单位
 union ktime {
 	s64	tv64;
 };

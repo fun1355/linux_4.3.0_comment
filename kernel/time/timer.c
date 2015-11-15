@@ -1593,12 +1593,16 @@ static void migrate_timers(int cpu)
 	put_cpu_ptr(&tvec_bases);
 }
 
+/**
+ * 定时器模块处理CPU热插拨事件的回调
+ */
 static int timer_cpu_notify(struct notifier_block *self,
 				unsigned long action, void *hcpu)
 {
 	switch (action) {
 	case CPU_DEAD:
 	case CPU_DEAD_FROZEN:
+		//CPU热插拨时迁移定时器到其他核上运行。
 		migrate_timers((long)hcpu);
 		break;
 	default:
@@ -1635,11 +1639,16 @@ static void __init init_timer_cpus(void)
 		init_timer_cpu(cpu);
 }
 
+/**
+ * 初始化定时器
+ */
 void __init init_timers(void)
 {
 	init_timer_cpus();
 	init_timer_stats();
+	//注册CPU事件，在CPU上线后执行定时器相关初始化。
 	timer_register_cpu_notifier();
+	//设置定时器软中断回调
 	open_softirq(TIMER_SOFTIRQ, run_timer_softirq);
 }
 

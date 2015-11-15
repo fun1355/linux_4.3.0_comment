@@ -2065,11 +2065,13 @@ int __init cpuset_init(void)
 {
 	int err = 0;
 
+	//为顶层cpuset分配位图内存
 	if (!alloc_cpumask_var(&top_cpuset.cpus_allowed, GFP_KERNEL))
 		BUG();
 	if (!alloc_cpumask_var(&top_cpuset.effective_cpus, GFP_KERNEL))
 		BUG();
 
+	//将顶层cpuset设置为所有CPU
 	cpumask_setall(top_cpuset.cpus_allowed);
 	nodes_setall(top_cpuset.mems_allowed);
 	cpumask_setall(top_cpuset.effective_cpus);
@@ -2079,6 +2081,7 @@ int __init cpuset_init(void)
 	set_bit(CS_SCHED_LOAD_BALANCE, &top_cpuset.flags);
 	top_cpuset.relax_domain_level = -1;
 
+	//这个还整一个文件系统???
 	err = register_filesystem(&cpuset_fs_type);
 	if (err < 0)
 		return err;

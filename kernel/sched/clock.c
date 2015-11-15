@@ -142,11 +142,14 @@ static inline struct sched_clock_data *cpu_sdc(int cpu)
 	return &per_cpu(sched_clock_data, cpu);
 }
 
+//初始化调度时钟
 void sched_clock_init(void)
 {
+	//获得当前单调时间
 	u64 ktime_now = ktime_to_ns(ktime_get());
 	int cpu;
 
+	//为每个CPU设置其调度相关的时间
 	for_each_possible_cpu(cpu) {
 		struct sched_clock_data *scd = cpu_sdc(cpu);
 
@@ -155,6 +158,7 @@ void sched_clock_init(void)
 		scd->clock = ktime_now;
 	}
 
+	//调度时钟生效
 	sched_clock_running = 1;
 
 	/*
@@ -395,6 +399,7 @@ u64 local_clock(void)
 
 void sched_clock_init(void)
 {
+	//表示调度时钟已经生效
 	sched_clock_running = 1;
 }
 

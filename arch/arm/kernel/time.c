@@ -112,10 +112,14 @@ int __init register_persistent_clock(clock_access_fn read_boot,
 	return -EINVAL;
 }
 
+/**
+ * 初始化硬件时钟
+ */
 void __init time_init(void)
 {
-	if (machine_desc->init_time) {
-		machine_desc->init_time();
+	//调用机器的时钟初始化
+	if (machine_desc->init_time) {//在arch/arm/mack-xxxx/mack-xxxx.c中使用MACHINE_START设置
+		machine_desc->init_time();//如qt2410_init_time
 	} else {
 #ifdef CONFIG_COMMON_CLK
 		of_clk_init(NULL);

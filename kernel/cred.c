@@ -566,9 +566,13 @@ EXPORT_SYMBOL(revert_creds);
 /*
  * initialise the credentials stuff
  */
+/**
+ * 审计子系统初始化
+ */
 void __init cred_init(void)
 {
 	/* allocate a slab in which we can store credentials */
+	//分配一个slab管理器而已。
 	cred_jar = kmem_cache_create("cred_jar", sizeof(struct cred),
 				     0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 }

@@ -183,6 +183,7 @@ static unsigned long calibrate_delay_direct(void)
  */
 #define LPS_PREC 8
 
+//测算BogoMIPS
 static unsigned long calibrate_delay_converge(void)
 {
 	/* First stage - slowly accelerate to find initial bounds */
@@ -193,10 +194,10 @@ static unsigned long calibrate_delay_converge(void)
 
 	/* wait for "start of" clock tick */
 	ticks = jiffies;
-	while (ticks == jiffies)
+	while (ticks == jiffies)//等待jiffies发生变化
 		; /* nothing */
 	/* Go .. */
-	ticks = jiffies;
+	ticks = jiffies;//新的jiffies开始了
 	do {
 		if (++trial_in_band == (1<<band)) {
 			++band;
@@ -204,7 +205,7 @@ static unsigned long calibrate_delay_converge(void)
 		}
 		__delay(lpj * band);
 		trials += band;
-	} while (ticks == jiffies);
+	} while (ticks == jiffies);//循环一直等待jiffies发生变化。
 	/*
 	 * We overshot, so retreat to a clear underestimate. Then estimate
 	 * the largest likely undershoot. This defines our chop bounds.
@@ -271,13 +272,17 @@ void __attribute__((weak)) calibration_delay_done(void)
 {
 }
 
+/**
+ * 测算BogoMIPS
+ */
 void calibrate_delay(void)
 {
 	unsigned long lpj;
 	static bool printed;
 	int this_cpu = smp_processor_id();
 
-	if (per_cpu(cpu_loops_per_jiffy, this_cpu)) {
+	if (per_cpu(cpu_loops_per_jiffy, this_cpu)) {//当前CPU已经计算了值
+		//直接打印出来
 		lpj = per_cpu(cpu_loops_per_jiffy, this_cpu);
 		if (!printed)
 			pr_info("Calibrating delay loop (skipped) "

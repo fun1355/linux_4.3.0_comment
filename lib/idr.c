@@ -822,6 +822,10 @@ void *idr_replace(struct idr *idp, void *ptr, int id)
 }
 EXPORT_SYMBOL(idr_replace);
 
+/**
+ * idr将整数与指针关联起来
+ * 这里构造它的slab管理器。
+ */
 void __init idr_init_cache(void)
 {
 	idr_layer_cache = kmem_cache_create("idr_layer_cache",

@@ -16,9 +16,13 @@
 
 /* Policies */
 enum {
+	//内部使用
 	MPOL_DEFAULT,
+	//内存分配在策略给定的一个节点中完成，失败后在其他节点中分配
 	MPOL_PREFERRED,
+	//只在给定的节点中进行分配。在最近的节点中分配，失败后不在其他节点中分配。
 	MPOL_BIND,
+	//将多个节点组成一个节点后进行内存分配。失败后在其他节点中分配。
 	MPOL_INTERLEAVE,
 	MPOL_LOCAL,
 	MPOL_MAX,	/* always last member of enum */

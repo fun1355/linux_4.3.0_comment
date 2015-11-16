@@ -250,14 +250,21 @@ enum zone_watermarks {
 #define high_wmark_pages(z) (z->watermark[WMARK_HIGH])
 
 struct per_cpu_pages {
+	//当前数量
 	int count;		/* number of pages in the list */
+	//高水线，高于此数将内存还给伙伴系统
 	int high;		/* high watermark, emptying needed */
+	//一次性添加和删除的页面数量
 	int batch;		/* chunk size for buddy add/remove */
 
 	/* Lists of pages, one per migrate type stored on the pcp-lists */
+	//缓存的页链表
 	struct list_head lists[MIGRATE_PCPTYPES];
 };
 
+/**
+ * 每个zone上面的pageset缓存页。
+ */
 struct per_cpu_pageset {
 	struct per_cpu_pages pcp;
 #ifdef CONFIG_NUMA
@@ -356,6 +363,7 @@ struct zone {
 	unsigned int inactive_ratio;
 
 	struct pglist_data	*zone_pgdat;
+	//每CPU的页面缓存。
 	struct per_cpu_pageset __percpu *pageset;
 
 	/*

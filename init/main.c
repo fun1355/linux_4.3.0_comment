@@ -506,6 +506,7 @@ static void __init mm_init(void)
 	 */
 	kmem_cache_init();
 	percpu_init_late();
+	//页表相关的初始化，其实就是创建一个slab分配器，用于页表锁的分配。
 	pgtable_init();
 	//初始化vmalloc用到的数据结构
 	vmalloc_init();
@@ -631,6 +632,7 @@ asmlinkage __visible void __init start_kernel(void)
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
 		local_irq_disable();
+	//idr用于管理整数ID，为POSIX计时器相关系统所用，生成特定计时器对象的ID.
 	idr_init_cache();
 	//初始化cpu相关的rcu数据结构。注册rcu回调。
 	rcu_init();
@@ -705,15 +707,23 @@ asmlinkage __visible void __init start_kernel(void)
 	}
 #endif
 	page_ext_init();
+	//内核对象跟踪
 	debug_objects_mem_init();
+	//内存泄漏检测初始化
 	kmemleak_init();
+	//设置pageset，即每个zone上面的每cpu页面缓存
 	setup_per_cpu_pageset();
+	//将16M以上的内存节点指定为交叉节点，并设置当前进程的模式
 	numa_policy_init();
+	//延后的时钟初始化操作
 	if (late_time_init)
 		late_time_init();
 	sched_clock_init();
+	//测试BogoMIPS值，计算每个jiffy内消耗掉多少CPU周期。
 	calibrate_delay();
+	//快速执行pid分配，分配pid位图并生成slab缓存.
 	pidmap_init();
+	//为anon_vma生成slab分配器。
 	anon_vma_init();
 	acpi_early_init();
 #ifdef CONFIG_X86
@@ -724,12 +734,19 @@ asmlinkage __visible void __init start_kernel(void)
 	/* Should be run before the first non-init thread is created */
 	init_espfix_bsp();
 #endif
+	//do nothing
 	thread_info_cache_init();
+	//审计初始化，用于确定对象是否有执行某种操作的资格。
 	cred_init();
+	//初始化fork中使用的资源相关数据结构。
 	fork_init();
+	//用于生成进程管理所需要的slab管理器
 	proc_caches_init();
+	//初始化buffer,用于缓存从块设备中读取的块。为其构建slab缓存管理器。
 	buffer_init();
+	//密钥服务初始化。
 	key_init();
+	//安全子系统初始化。
 	security_init();
 	dbg_late_init();
 	vfs_caches_init();

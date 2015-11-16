@@ -589,6 +589,10 @@ void __init pidhash_init(void)
 		INIT_HLIST_HEAD(&pid_hash[i]);
 }
 
+/**
+ * 初始化进程地址空间
+ * 这里初始化init_pid_ns地址空间。
+ */
 void __init pidmap_init(void)
 {
 	/* Veryify no one has done anything silly */

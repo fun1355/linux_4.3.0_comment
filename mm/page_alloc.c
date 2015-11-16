@@ -4898,8 +4898,9 @@ static void __meminit zone_pageset_init(struct zone *zone, int cpu)
 static void __meminit setup_zone_pageset(struct zone *zone)
 {
 	int cpu;
+	//分配zone的pageset结构
 	zone->pageset = alloc_percpu(struct per_cpu_pageset);
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu)//初始化pageset的值。
 		zone_pageset_init(zone, cpu);
 }
 
@@ -4911,7 +4912,9 @@ void __init setup_per_cpu_pageset(void)
 {
 	struct zone *zone;
 
+	//遍历所有zone
 	for_each_populated_zone(zone)
+		//设置每个zone的每CPU缓存。
 		setup_zone_pageset(zone);
 }
 

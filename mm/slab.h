@@ -58,9 +58,11 @@ enum slab_state {
 extern enum slab_state slab_state;
 
 /* The slab cache mutex protects the management structures during changes */
+//保护slab管理结构的锁。
 extern struct mutex slab_mutex;
 
 /* The list of all slab caches on the system */
+//系统中所有slab链表头
 extern struct list_head slab_caches;
 
 /* The slab cache that manages slab cache information */
@@ -339,19 +341,30 @@ static inline struct kmem_cache *cache_from_obj(struct kmem_cache *s, void *x)
 /*
  * The slab lists for all objects.
  */
+/**
+ * 每个NUMA内存节点中的slab链表
+ */
 struct kmem_cache_node {
+	//保存本描述符的自旋锁
 	spinlock_t list_lock;
 
 #ifdef CONFIG_SLAB
+	//包含部分slab对象的slab链表
 	struct list_head slabs_partial;	/* partial list first, better asm code */
+	//全满链表
 	struct list_head slabs_full;
+	//空闲链表，可回收
 	struct list_head slabs_free;
+	//可分配的对象数
 	unsigned long free_objects;
 	unsigned int free_limit;
+	//当前节点的可用着色值
 	unsigned int colour_next;	/* Per-node cache coloring */
 	struct array_cache *shared;	/* shared per node */
 	struct alien_cache **alien;	/* on other nodes */
+	//用于回收
 	unsigned long next_reap;	/* updated without locking */
+	//是否用过slab
 	int free_touched;		/* updated without locking */
 #endif
 

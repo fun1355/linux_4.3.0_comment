@@ -501,6 +501,9 @@ static void __init mm_init(void)
 	page_ext_init_flatmem();
 	//将boot内存管理转换为伙伴内存管理
 	mem_init();
+	/**
+	 * 初始化slab内存分配器
+	 */
 	kmem_cache_init();
 	percpu_init_late();
 	pgtable_init();

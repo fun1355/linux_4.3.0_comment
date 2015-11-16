@@ -316,6 +316,7 @@ unsigned long calculate_alignment(unsigned long flags,
 	return ALIGN(align, sizeof(void *));
 }
 
+//创建slab分配器的主函数
 static struct kmem_cache *
 do_kmem_cache_create(const char *name, size_t object_size, size_t size,
 		     size_t align, unsigned long flags, void (*ctor)(void *),
@@ -325,10 +326,13 @@ do_kmem_cache_create(const char *name, size_t object_size, size_t size,
 	int err;
 
 	err = -ENOMEM;
+	//先分配一个kmem_cache管理结构
 	s = kmem_cache_zalloc(kmem_cache, GFP_KERNEL);
 	if (!s)
 		goto out;
 
+`
+	//初始化kmem_cache管理结构
 	s->name = name;
 	s->object_size = object_size;
 	s->size = size;
@@ -339,11 +343,14 @@ do_kmem_cache_create(const char *name, size_t object_size, size_t size,
 	if (err)
 		goto out_free_cache;
 
+	//创建slab缓存
 	err = __kmem_cache_create(s, flags);
 	if (err)
 		goto out_free_cache;
 
+	//设置引用计数
 	s->refcount = 1;
+	//添加到全局链表中
 	list_add(&s->list, &slab_caches);
 out:
 	if (err)
@@ -380,6 +387,9 @@ out_free_cache:
  * cacheline.  This can be beneficial if you're counting cycles as closely
  * as davem.
  */
+/**
+ * 创建cache
+ */
 struct kmem_cache *
 kmem_cache_create(const char *name, size_t size, size_t align,
 		  unsigned long flags, void (*ctor)(void *))
@@ -388,12 +398,15 @@ kmem_cache_create(const char *name, size_t size, size_t align,
 	const char *cache_name;
 	int err;
 
+	//增加对热插拨相关数据结构的引用。
 	get_online_cpus();
 	get_online_mems();
 	memcg_get_cache_ids();
 
+	//获取锁，保护全局的slab链表。
 	mutex_lock(&slab_mutex);
 
+	//遍历链表，看看是否已经创建了同名的slab
 	err = kmem_cache_sanity_check(name, size);
 	if (err) {
 		s = NULL;	/* suppress uninit var warning */
@@ -408,16 +421,19 @@ kmem_cache_create(const char *name, size_t size, size_t align,
 	 */
 	flags &= CACHE_CREATE_MASK;
 
+	//看看是否可以与已经创建的slab合并????臃肿复杂了吧:)
 	s = __kmem_cache_alias(name, size, align, flags, ctor);
 	if (s)
 		goto out_unlock;
 
+	//复制slab名称
 	cache_name = kstrdup_const(name, GFP_KERNEL);
 	if (!cache_name) {
 		err = -ENOMEM;
 		goto out_unlock;
 	}
 
+	//真正干活的在这里。
 	s = do_kmem_cache_create(cache_name, size, size,
 				 calculate_alignment(flags, align, size),
 				 flags, ctor, NULL, NULL);
@@ -426,7 +442,7 @@ kmem_cache_create(const char *name, size_t size, size_t align,
 		kfree_const(cache_name);
 	}
 
-out_unlock:
+out_unlock: //解锁,递减引用值
 	mutex_unlock(&slab_mutex);
 
 	memcg_put_cache_ids();

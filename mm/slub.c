@@ -2512,6 +2512,10 @@ static __always_inline void *slab_alloc(struct kmem_cache *s,
 	return slab_alloc_node(s, gfpflags, NUMA_NO_NODE, addr);
 }
 
+/**
+ * 从一个kmem_cache中分配一个对象
+ * 在创建kmem_cache时，会从root kmem_cache中分配对象
+ */
 void *kmem_cache_alloc(struct kmem_cache *s, gfp_t gfpflags)
 {
 	void *ret = slab_alloc(s, gfpflags, _RET_IP_);

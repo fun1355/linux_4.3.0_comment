@@ -3316,6 +3316,9 @@ static struct kmem_cache *bh_cachep __read_mostly;
  * Once the number of bh's in the machine exceeds this level, we start
  * stripping them in writeback.
  */
+/**
+ * buffer_head的数量，根据normal区10%的页面计算出来。
+ */
 static unsigned long max_buffer_heads;
 
 int buffer_heads_over_limit;
@@ -3430,10 +3433,14 @@ int bh_submit_read(struct buffer_head *bh)
 }
 EXPORT_SYMBOL(bh_submit_read);
 
+/**
+ * 初始化与块设备buffer_head元数据相关的缓存
+ */
 void __init buffer_init(void)
 {
 	unsigned long nrpages;
 
+	//创建buffer_head内存分配控制器
 	bh_cachep = kmem_cache_create("buffer_head",
 			sizeof(struct buffer_head), 0,
 				(SLAB_RECLAIM_ACCOUNT|SLAB_PANIC|
@@ -3443,7 +3450,12 @@ void __init buffer_init(void)
 	/*
 	 * Limit the bh occupancy to 10% of ZONE_NORMAL
 	 */
+	/**
+	 * buffer_head缓存元数据，因此内核需要经常访问。
+	 * 限制其使用的缓存为Normal区域的10%
+	 */
 	nrpages = (nr_free_buffer_pages() * 10) / 100;
 	max_buffer_heads = nrpages * (PAGE_SIZE / sizeof(struct buffer_head));
+	//注册CPU热插拨侦听事件
 	hotcpu_notifier(buffer_cpu_notify, 0);
 }

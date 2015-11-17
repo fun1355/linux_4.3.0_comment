@@ -39,8 +39,11 @@ struct	rusage {
 	__kernel_long_t	ru_nivcsw;	/* involuntary " */
 };
 
+//资源限制描述符
 struct rlimit {
+	//当前生效的限制值，可由用户修改
 	__kernel_ulong_t	rlim_cur;
+	//最大限制值
 	__kernel_ulong_t	rlim_max;
 };
 

@@ -129,8 +129,10 @@ static inline bool is_key_possessed(const key_ref_t key_ref)
  *   - disk encryption IDs
  *   - Kerberos TGTs and tickets
  */
+//√‹‘ø
 struct key {
 	atomic_t		usage;		/* number of references */
+	//–Ú¡–∫≈
 	key_serial_t		serial;		/* key serial number */
 	union {
 		struct list_head graveyard_link;
@@ -181,6 +183,7 @@ struct key {
 	union {
 		struct keyring_index_key index_key;
 		struct {
+			//¿‡–Õ
 			struct key_type	*type;		/* type of key */
 			char		*description;
 		};

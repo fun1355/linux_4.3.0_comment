@@ -1118,19 +1118,25 @@ EXPORT_SYMBOL(unregister_key_type);
 /*
  * Initialise the key management state.
  */
+/**
+ * 初始化密钥
+ */
 void __init key_init(void)
 {
 	/* allocate a slab in which we can store keys */
+	//存储密钥的slab
 	key_jar = kmem_cache_create("key_jar", sizeof(struct key),
 			0, SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 
 	/* add the special key types */
+	//将几种密钥类型添加到全局链表中
 	list_add_tail(&key_type_keyring.link, &key_types_list);
 	list_add_tail(&key_type_dead.link, &key_types_list);
 	list_add_tail(&key_type_user.link, &key_types_list);
 	list_add_tail(&key_type_logon.link, &key_types_list);
 
 	/* record the root user tracking */
+	//将root用户的密钥管理结构加到红黑树中。
 	rb_link_node(&root_key_user.node,
 		     NULL,
 		     &key_user_tree.rb_node);

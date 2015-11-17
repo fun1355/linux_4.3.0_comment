@@ -32,9 +32,14 @@ static int __init delayacct_setup_disable(char *str)
 }
 __setup("nodelayacct", delayacct_setup_disable);
 
+/**
+ * 任务延迟统计初始化，依赖于taskstats模块
+ */
 void delayacct_init(void)
 {
+	//创建slab管理器
 	delayacct_cache = KMEM_CACHE(task_delay_info, SLAB_PANIC);
+	//为init任务分配delayacct内存并关联起来。
 	delayacct_tsk_init(&init_task);
 }
 

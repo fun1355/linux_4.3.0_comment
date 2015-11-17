@@ -3107,38 +3107,51 @@ void __init mnt_init(void)
 	unsigned u;
 	int err;
 
+	//mount缓存管理器
 	mnt_cache = kmem_cache_create("mnt_cache", sizeof(struct mount),
 			0, SLAB_HWCACHE_ALIGN | SLAB_PANIC, NULL);
 
+	/**
+	 * mount_hashtable哈希表保存所有已经注册的文件系统
+	 * 需要使用alloc_large_system_hash来分配吗?
+	 */
 	mount_hashtable = alloc_large_system_hash("Mount-cache",
 				sizeof(struct hlist_head),
 				mhash_entries, 19,
 				0,
 				&m_hash_shift, &m_hash_mask, 0, 0);
+	//分配挂载点哈希表所需要的内存
 	mountpoint_hashtable = alloc_large_system_hash("Mountpoint-cache",
 				sizeof(struct hlist_head),
 				mphash_entries, 19,
 				0,
 				&mp_hash_shift, &mp_hash_mask, 0, 0);
 
+	//分配失败就panic吧
 	if (!mount_hashtable || !mountpoint_hashtable)
 		panic("Failed to allocate mount hash table\n");
 
+	//初始化mount_hashtable、mountpoint_hashtable这两个哈希表的哈希桶
 	for (u = 0; u <= m_hash_mask; u++)
 		INIT_HLIST_HEAD(&mount_hashtable[u]);
 	for (u = 0; u <= mp_hash_mask; u++)
 		INIT_HLIST_HEAD(&mountpoint_hashtable[u]);
 
+	//创建kernfs_node缓存slab,kernfs用来替代sysfs
 	kernfs_init();
 
+	//通过kernfs创建sysfs
 	err = sysfs_init();
 	if (err)
 		printk(KERN_WARNING "%s: sysfs_init error: %d\n",
 			__func__, err);
+	//在驱动程序模型中添加fs目录
 	fs_kobj = kobject_create_and_add("fs", NULL);
 	if (!fs_kobj)
 		printk(KERN_WARNING "%s: kobj create error\n", __func__);
+	//初始化根文件系统
 	init_rootfs();
+	//挂载已经注册的rootfs文件系统
 	init_mount_tree();
 }
 

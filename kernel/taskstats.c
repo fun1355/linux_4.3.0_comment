@@ -679,6 +679,7 @@ static const struct genl_ops taskstats_ops[] = {
 };
 
 /* Needed early in initialization */
+//taskstats²Î¼ûdocumentation/taskstats.txt
 void __init taskstats_init_early(void)
 {
 	unsigned int i;

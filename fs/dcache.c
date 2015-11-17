@@ -3415,13 +3415,15 @@ static void __init dcache_init(void)
 	 * but it is probably not worth it because of the cache nature
 	 * of the dcache. 
 	 */
+	//创建dcache缓存slab
 	dentry_cache = KMEM_CACHE(dentry,
 		SLAB_RECLAIM_ACCOUNT|SLAB_PANIC|SLAB_MEM_SPREAD);
 
 	/* Hash may have been set up in dcache_init_early */
-	if (!hashdist)
+	if (!hashdist)//如果在dcache_init_early已经初始化，就退出
 		return;
 
+	//在这里分配dcache需要哈希缓存
 	dentry_hashtable =
 		alloc_large_system_hash("Dentry cache",
 					sizeof(struct hlist_bl_head),
@@ -3433,6 +3435,7 @@ static void __init dcache_init(void)
 					0,
 					0);
 
+	//初始化dcache哈希头
 	for (loop = 0; loop < (1U << d_hash_shift); loop++)
 		INIT_HLIST_BL_HEAD(dentry_hashtable + loop);
 }
@@ -3451,16 +3454,25 @@ void __init vfs_caches_init_early(void)
 	inode_init_early();
 }
 
+//初始化vfs缓存
 void __init vfs_caches_init(void)
 {
+	//缓存文件名称的slab，接口是__getname,__putname
 	names_cachep = kmem_cache_create("names_cache", PATH_MAX, 0,
 			SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 
+	//初始化dcache目录项缓存需要slab
 	dcache_init();
+	//初始化索引节点所需要的缓存slab
 	inode_init();
+	//初始化file相关的缓存slab及文件计数器。
 	files_init();
+	//根据内存数量，计算最大打开文件数量。
 	files_maxfiles_init();
+	//初始化mount需要的缓存
 	mnt_init();
+	//初始化设备文件需要的缓存，并注册设备文件系统。
 	bdev_cache_init();
+	//初始化字符设备相关的散列表。
 	chrdev_init();
 }

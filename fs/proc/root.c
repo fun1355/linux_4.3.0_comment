@@ -161,21 +161,30 @@ static struct file_system_type proc_fs_type = {
 	.fs_flags	= FS_USERNS_VISIBLE | FS_USERNS_MOUNT,
 };
 
+/**
+ * 初始化proc文件系统
+ */
 void __init proc_root_init(void)
 {
 	int err;
 
+	//创建proc_inode缓存管理器
 	proc_init_inodecache();
+	//注册proc文件系统。
 	err = register_filesystem(&proc_fs_type);
 	if (err)
 		return;
 
+	//proc/self
 	proc_self_init();
 	proc_thread_self_init();
+	//创建/proc/mounts的软链接
 	proc_symlink("mounts", NULL, "self/mounts");
 
+	//net子系统的proc
 	proc_net_init();
 
+	//创建一些proc目录 
 #ifdef CONFIG_SYSVIPC
 	proc_mkdir("sysvipc", NULL);
 #endif

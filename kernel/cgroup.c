@@ -5080,6 +5080,10 @@ int __init cgroup_init_early(void)
  * Register cgroup filesystem and /proc file, and initialize
  * any subsystems that didn't request early init.
  */
+/**
+ * 执行一些在cgroup_init_early中没有完成的初始化
+ * 在/proc文件系统中注册。
+ */
 int __init cgroup_init(void)
 {
 	struct cgroup_subsys *ss;

@@ -641,6 +641,9 @@ asmlinkage __visible void __init start_kernel(void)
 	trace_init();
 
 	context_tracking_init();
+	/**
+	 * 初始化文件系统中使用的基数
+	 */
 	radix_tree_init();
 	/* init some links before init_ISA_irqs() */
 	//中断亲和性相关的初始化。
@@ -750,19 +753,30 @@ asmlinkage __visible void __init start_kernel(void)
 	security_init();
 	dbg_late_init();
 	vfs_caches_init();
+	//初始化以准备使用进程信号。
 	signals_init();
 	/* rootfs populating might need page-writeback */
+	//初始化页回写机制。
 	page_writeback_init();
+	//注册proc文件系统并生成一些默认的proc文件
 	proc_root_init();
 	nsfs_init();
-	//初始化cpuset子系统。
+	//初始化cpuset子系统。设置top_cpuset并将cpuset注册到文件系统。
 	cpuset_init();
+	//继续初始化cgroup，在proc中注册cgroup
 	cgroup_init();
+	//taskstats是向用户空间传递任务与进程的状态信息，初始化它的netlink接口。
 	taskstats_init_early();
+	//delayacct模块对任务的io延迟进行统计，用于分析。这里对其初始化。
 	delayacct_init();
 
+	/**
+	 * CPU缺陷检查。
+	 * 对arm架构来说，主要是测试写缓存别名。
+	 */
 	check_bugs();
 
+	//arm不支持,do nothing
 	acpi_subsystem_init();
 	sfi_init_late();
 
@@ -771,6 +785,7 @@ asmlinkage __visible void __init start_kernel(void)
 		efi_free_boot_services();
 	}
 
+	//初始化ftrace，一个有用的内核调测功能。
 	ftrace_init();
 
 	/* Do the rest non-__init'ed, we're now alive */

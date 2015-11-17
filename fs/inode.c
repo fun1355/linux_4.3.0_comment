@@ -1873,6 +1873,7 @@ void __init inode_init_early(void)
 		INIT_HLIST_HEAD(&inode_hashtable[loop]);
 }
 
+//Óëdcache_initÀàËÆ£¬ÂÔ¹ı
 void __init inode_init(void)
 {
 	unsigned int loop;

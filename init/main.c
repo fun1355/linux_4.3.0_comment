@@ -396,21 +396,30 @@ static noinline void __init_refok rest_init(void)
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
+	//生成init进程，kernel_init进程执行了很多初始化工作。
 	kernel_thread(kernel_init, NULL, CLONE_FS);
+	//初始化当前进程的内存策略。
 	numa_default_policy();
+	//生成kthreadd守护进程,用于生成内核线程的线程。
 	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES);
+	//在查找任务前，获得rcu读锁
 	rcu_read_lock();
+	//通过pid查找kthreadd线程结构。
 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
 	rcu_read_unlock();
+	//唤醒等待kthreadd线程创建消息的进程。
 	complete(&kthreadd_done);
 
 	/*
 	 * The boot idle thread must execute schedule()
 	 * at least once to get things moving:
 	 */
+	//设置当前线程的idle类线程
 	init_idle_bootup_task(current);
+	//调一下schedule函数
 	schedule_preempt_disabled();
 	/* Call into cpu_idle with preempt disabled */
+	//进入idle循环。
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
@@ -789,6 +798,7 @@ asmlinkage __visible void __init start_kernel(void)
 	ftrace_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
+	//生成init进程和内核线程。
 	rest_init();
 }
 
@@ -985,12 +995,17 @@ static void __init do_initcalls(void)
  */
 static void __init do_basic_setup(void)
 {
+	//初始化cpuset子系统的top_cpuset
 	cpuset_init_smp();
 	shmem_init();
+	//初始化linux设备驱动模型。
 	driver_init();
+	//proc/irq/*
 	init_irq_proc();
 	do_ctors();
+	//允许khelper工作队列生效，这个队列允许用户态为内核态执行一些辅助工作。
 	usermodehelper_enable();
+	//调用各子系统的初始化函数。
 	do_initcalls();
 	random_int_secret_init();
 }
@@ -1038,10 +1053,14 @@ static int try_to_run_init_process(const char *init_filename)
 
 static noinline void __init kernel_init_freeable(void);
 
+/**
+ * 内核初始化，运行在线程上下文
+ */
 static int __ref kernel_init(void *unused)
 {
 	int ret;
 
+	//内核初始化，不必在主核上运行。
 	kernel_init_freeable();
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
@@ -1052,6 +1071,7 @@ static int __ref kernel_init(void *unused)
 
 	flush_delayed_fput();
 
+	//根据boot参数，确定init进程是谁，并启动它。
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)
@@ -1088,6 +1108,7 @@ static noinline void __init kernel_init_freeable(void)
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
+	//等待kthreadd线程初始化完毕。
 	wait_for_completion(&kthreadd_done);
 
 	/* Now the scheduler is fully set up and can do blocking allocations */
@@ -1096,24 +1117,34 @@ static noinline void __init kernel_init_freeable(void)
 	/*
 	 * init can allocate pages on any node
 	 */
+	//允许当前进程在任何节点分配内存
 	set_mems_allowed(node_states[N_MEMORY]);
 	/*
 	 * init can run on any cpu.
 	 */
+	//允许进程运行在任何cpu中。
 	set_cpus_allowed_ptr(current, cpu_all_mask);
 
+	//保存能执行cad的进程id,安全方面的考虑。
 	cad_pid = task_pid(current);
 
+	//准备激活并使用其他CPU
 	smp_prepare_cpus(setup_max_cpus);
 
+	/**
+	 * 执行模块注册的初始化函数。
+	 * 这些函数主要是初始化多核间调度需要的队列。
+	 */
 	do_pre_smp_initcalls();
 	lockup_detector_init();
 
 	smp_init();
+	//SMP调度初始化函数。
 	sched_init_smp();
 
 	page_alloc_init_late();
 
+	//几个子系统的初始化。
 	do_basic_setup();
 
 	/* Open the /dev/console on the rootfs, this should never fail */
@@ -1126,7 +1157,7 @@ static noinline void __init kernel_init_freeable(void)
 	 * check if there is an early userspace init.  If yes, let it do all
 	 * the work
 	 */
-
+	//确定初始化进程名称
 	if (!ramdisk_execute_command)
 		ramdisk_execute_command = "/init";
 

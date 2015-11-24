@@ -174,9 +174,13 @@ void kthread_parkme(void)
 }
 EXPORT_SYMBOL_GPL(kthread_parkme);
 
+/**
+ * 内核线程主函数。
+ */
 static int kthread(void *_create)
 {
 	/* Copy data: it's on kthread's stack */
+	//获得任务参数及主函数。
 	struct kthread_create_info *create = _create;
 	int (*threadfn)(void *data) = create->threadfn;
 	void *data = create->data;
@@ -222,6 +226,9 @@ int tsk_fork_get_node(struct task_struct *tsk)
 	return NUMA_NO_NODE;
 }
 
+/**
+ * 创建内核线程
+ */
 static void create_kthread(struct kthread_create_info *create)
 {
 	int pid;
@@ -230,6 +237,7 @@ static void create_kthread(struct kthread_create_info *create)
 	current->pref_node_fork = create->node;
 #endif
 	/* We want our own signal handler (we take no signals by default). */
+	//创建kthreadd线程
 	pid = kernel_thread(kthread, create, CLONE_FS | CLONE_FILES | SIGCHLD);
 	if (pid < 0) {
 		/* If user was SIGKILLed, I release the structure. */
@@ -499,37 +507,48 @@ int kthread_stop(struct task_struct *k)
 }
 EXPORT_SYMBOL(kthread_stop);
 
+/**
+ * 内核线程守护线程
+ */
 int kthreadd(void *unused)
 {
+	//获得当前任务指针
 	struct task_struct *tsk = current;
 
 	/* Setup a clean context for our children to inherit. */
-	set_task_comm(tsk, "kthreadd");
-	ignore_signals(tsk);
+	set_task_comm(tsk, "kthreadd");//设置当前线程名称。
+	ignore_signals(tsk);//忽略所有信号
+	//允许在所有CPU上执行，允许在所有内存节点的分配内存。
 	set_cpus_allowed_ptr(tsk, cpu_all_mask);
 	set_mems_allowed(node_states[N_MEMORY]);
 
 	current->flags |= PF_NOFREEZE;
 
 	for (;;) {
+		//此状态可以信号唤醒
 		set_current_state(TASK_INTERRUPTIBLE);
-		if (list_empty(&kthread_create_list))
+		if (list_empty(&kthread_create_list))//没有需要创建的内核线程，调度出去等待唤醒。
 			schedule();
+		//有需要创建的线程，置为运行态
 		__set_current_state(TASK_RUNNING);
 
-		spin_lock(&kthread_create_lock);
-		while (!list_empty(&kthread_create_list)) {
+		spin_lock(&kthread_create_lock);//获取自旋锁，可能有多个kthreadd线程在运行。
+		while (!list_empty(&kthread_create_list)) {//读取链表，找到所有需要创建的任务。
 			struct kthread_create_info *create;
 
+			//取出要创建的任务，并释放锁。
 			create = list_entry(kthread_create_list.next,
 					    struct kthread_create_info, list);
 			list_del_init(&create->list);
 			spin_unlock(&kthread_create_lock);
 
+			//创建内核线程
 			create_kthread(create);
 
+			//再次获取锁后，看是否还有任务需要创建。
 			spin_lock(&kthread_create_lock);
 		}
+		//没有了，继续睡
 		spin_unlock(&kthread_create_lock);
 	}
 

@@ -7242,6 +7242,9 @@ void __init sched_init_smp(void)
 {
 	cpumask_var_t non_isolated_cpus;
 
+	/**
+	 * 为CPU隔离功能，及NUMA节点域分配存储空间。
+	 */
 	alloc_cpumask_var(&non_isolated_cpus, GFP_KERNEL);
 	alloc_cpumask_var(&fallback_doms, GFP_KERNEL);
 
@@ -7252,20 +7255,28 @@ void __init sched_init_smp(void)
 	 * cpu masks are stable and all blatant races in the below code cannot
 	 * happen.
 	 */
+	//获取调度域的锁
 	mutex_lock(&sched_domains_mutex);
+	//初始化调度域。
 	init_sched_domains(cpu_active_mask);
+	//设置非隔离调度CPU
 	cpumask_andnot(non_isolated_cpus, cpu_possible_mask, cpu_isolated_map);
+	//至少将当前CPU设置为非隔离CPU
 	if (cpumask_empty(non_isolated_cpus))
 		cpumask_set_cpu(smp_processor_id(), non_isolated_cpus);
+	//释放锁
 	mutex_unlock(&sched_domains_mutex);
 
+	//注册热插拨回调函数
 	hotcpu_notifier(sched_domains_numa_masks_update, CPU_PRI_SCHED_ACTIVE);
 	hotcpu_notifier(cpuset_cpu_active, CPU_PRI_CPUSET_ACTIVE);
 	hotcpu_notifier(cpuset_cpu_inactive, CPU_PRI_CPUSET_INACTIVE);
 
+	//初始化hrtick，注册其热插拨回调
 	init_hrtick();
 
 	/* Move init over to a non-isolated CPU */
+	//设置当前任务可以运行的核，不能占用被隔离的CPU
 	if (set_cpus_allowed_ptr(current, non_isolated_cpus) < 0)
 		BUG();
 	sched_init_granularity();

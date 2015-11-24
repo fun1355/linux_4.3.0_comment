@@ -1789,6 +1789,9 @@ long do_fork(unsigned long clone_flags,
 /*
  * Create a kernel thread.
  */
+/**
+ * 创建内核线程
+ */
 pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	return _do_fork(flags|CLONE_VM|CLONE_UNTRACED, (unsigned long)fn,

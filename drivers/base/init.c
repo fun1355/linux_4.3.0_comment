@@ -22,7 +22,9 @@ void __init driver_init(void)
 {
 	/* These are the core pieces */
 	devtmpfs_init();
+	//在sysfs中生成devices,dev,block,char等目录。
 	devices_init();
+	//生成bus,system等目录。
 	buses_init();
 	classes_init();
 	firmware_init();
@@ -31,7 +33,9 @@ void __init driver_init(void)
 	/* These are also core pieces, but must come after the
 	 * core core pieces.
 	 */
+	//sys/bus/platform
 	platform_bus_init();
+	//sys/devices/system/cpu
 	cpu_dev_init();
 	memory_dev_init();
 	container_dev_init();

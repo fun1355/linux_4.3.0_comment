@@ -270,6 +270,10 @@ try_misrouted_irq(unsigned int irq, struct irq_desc *desc,
 
 #define SPURIOUS_DEFERRED	0x80000000
 
+/**
+ * 当一个中断没有被处理时
+ * 调用此函数来识别未处理的原因
+ */
 void note_interrupt(struct irq_desc *desc, irqreturn_t action_ret)
 {
 	unsigned int irq;

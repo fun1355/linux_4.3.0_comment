@@ -369,24 +369,36 @@ static inline irq_hw_number_t irqd_to_hwirq(struct irq_data *d)
  * @irq_set_vcpu_affinity:	optional to target a vCPU in a virtual machine
  * @flags:		chip specific flags
  */
+/**
+ * 中断控制器
+ */
 struct irq_chip {
+	//控制器名称
 	const char	*name;
+	//打开关闭中断，不指定的话，就调用irq_enable
 	unsigned int	(*irq_startup)(struct irq_data *data);
 	void		(*irq_shutdown)(struct irq_data *data);
 	void		(*irq_enable)(struct irq_data *data);
 	void		(*irq_disable)(struct irq_data *data);
 
+	//应答中断
 	void		(*irq_ack)(struct irq_data *data);
+	//屏蔽中断
 	void		(*irq_mask)(struct irq_data *data);
 	void		(*irq_mask_ack)(struct irq_data *data);
 	void		(*irq_unmask)(struct irq_data *data);
+	//结束中断
 	void		(*irq_eoi)(struct irq_data *data);
 
+	//设置irq亲和性
 	int		(*irq_set_affinity)(struct irq_data *data, const struct cpumask *dest, bool force);
+	//在中断丢失的情况下，重新触发中断
 	int		(*irq_retrigger)(struct irq_data *data);
+	//设置中断触发方式
 	int		(*irq_set_type)(struct irq_data *data, unsigned int flow_type);
 	int		(*irq_set_wake)(struct irq_data *data, unsigned int on);
 
+	//锁定总线
 	void		(*irq_bus_lock)(struct irq_data *data);
 	void		(*irq_bus_sync_unlock)(struct irq_data *data);
 

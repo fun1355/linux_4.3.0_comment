@@ -52,7 +52,11 @@ struct irq_desc {
 	struct irq_data		irq_data;
 	//ÖĞ¶ÏÔÚÃ¿¸öCPUÉÏµÄÖ´ĞĞ×´Ì¬
 	unsigned int __percpu	*kstat_irqs;
-	//¸ß¼¶irqÊÂ¼şÊÂ¼ş??
+	/**
+	 * ¸ß¼¶irqÊÂ¼şş??
+	 * ¼´¸ß¼¶ÊÂ¼ş´¦Àí»Øµ÷
+	 * Èç±ßÔµ¡¢µçÆ½Á½ÖÖ·½Ê½µÄÖĞ¶ÏÓĞ²»Í¬µÄ´¦Àí·½Ê½¡£
+	 */
 	irq_flow_handler_t	handle_irq;
 #ifdef CONFIG_IRQ_PREFLOW_FASTEOI
 	//armÉÏÎ´ÓÃ
@@ -62,10 +66,11 @@ struct irq_desc {
 	struct irqaction	*action;	/* IRQ action list */
 	//ºÍirq_common_dataÖĞµÄ×´Ì¬ÓĞÊ²Ã´Çø±ğ?
 	unsigned int		status_use_accessors;
+	//ÄÚ²¿×´Ì¬£¬±ğ¶¯
 	unsigned int		core_internal_state__do_not_mess_with_it;
 	//½ûÖ¹¸ÃÖĞ¶ÏµÄ´ÎÊı
 	unsigned int		depth;		/* nested irq disables */
-	//´ò¿ª¸ÃÖĞ¶ÏµÄ´ÎÊı
+	//»½ĞÑ¸ÃÖĞ¶ÏµÄ´ÎÊı£¬ÓÃÓÚµçÔ´¹ÜÀí
 	unsigned int		wake_depth;	/* nested wake enables */
 	//·¢ÉúµÄÖĞ¶Ï´ÎÊı£¬ÓÃÓÚ¼ì²âÓ²¼ş¹ÊÕÏ¡£
 	unsigned int		irq_count;	/* For detecting broken IRQs */
@@ -78,6 +83,7 @@ struct irq_desc {
 	int			threads_handled_last;
 	//±£»¤¸ÃÊı¾İ½á¹¹µÄ×ÔĞıËø
 	raw_spinlock_t		lock;
+	//ÔÚÄÄĞ©ºËÉÏÃæ´ò¿ª´ËÖĞ¶Ï
 	struct cpumask		*percpu_enabled;
 #ifdef CONFIG_SMP
 	const struct cpumask	*affinity_hint;

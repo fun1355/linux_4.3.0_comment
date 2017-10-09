@@ -53,6 +53,9 @@ static DECLARE_TASKLET(resend_tasklet, resend_irqs, 0);
  *
  * Is called with interrupts disabled and desc->lock held.
  */
+/**
+ * 检查是否需要重新触发中断
+ */
 void check_irq_resend(struct irq_desc *desc)
 {
 	/*
@@ -61,18 +64,35 @@ void check_irq_resend(struct irq_desc *desc)
 	 * active. Clear the pending bit so suspend/resume does not
 	 * get confused.
 	 */
+	/**
+	 * 电平中断不存在此问题
+	 */
 	if (irq_settings_is_level(desc)) {
 		desc->istate &= ~IRQS_PENDING;
 		return;
 	}
+	/**
+	 * 已经设置了重新触发标志，退出
+	 * 这个标志是由enable、disable设置的。
+	 */
 	if (desc->istate & IRQS_REPLAY)
 		return;
+	/**
+	 * 其他核上面检测到了中断挂起
+	 * 在本核上面重新触发一下。
+	 */
 	if (desc->istate & IRQS_PENDING) {
 		desc->istate &= ~IRQS_PENDING;
+		//设置重新触发标志
 		desc->istate |= IRQS_REPLAY;
 
+		/**
+		 * 硬件不支持重新触发
+		 * 或者触发不成功
+		 */
 		if (!desc->irq_data.chip->irq_retrigger ||
 		    !desc->irq_data.chip->irq_retrigger(&desc->irq_data)) {
+		    //只好由软件来模拟了。
 #ifdef CONFIG_HARDIRQS_SW_RESEND
 			unsigned int irq = irq_desc_get_irq(desc);
 

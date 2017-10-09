@@ -312,31 +312,44 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 }
 #endif
 
+/**
+ * GIC中断控制器入口
+ */
 static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 {
 	u32 irqstat, irqnr;
+	//获得root GIC的硬件描述符
 	struct gic_chip_data *gic = &gic_data[0];
+	//获得GIC io映射地址
 	void __iomem *cpu_base = gic_data_cpu_base(gic);
 
 	do {
+		//获得HW中断号
 		irqstat = readl_relaxed(cpu_base + GIC_CPU_INTACK);
 		irqnr = irqstat & GICC_IAR_INT_ID_MASK;
 
+		//SPI或者PPI
 		if (likely(irqnr > 15 && irqnr < 1021)) {
 			if (static_key_true(&supports_deactivate))
 				writel_relaxed(irqstat, cpu_base + GIC_CPU_EOI);
+			//处理通常的域中火情
 			handle_domain_irq(gic->domain, irqnr, regs);
 			continue;
 		}
+		//IPI
 		if (irqnr < 16) {
+			//直接应答
 			writel_relaxed(irqstat, cpu_base + GIC_CPU_EOI);
 			if (static_key_true(&supports_deactivate))
 				writel_relaxed(irqstat, cpu_base + GIC_CPU_DEACTIVATE);
 #ifdef CONFIG_SMP
+			//处理IPI
 			handle_IPI(irqnr, regs);
 #endif
+			//继续读取硬件，看是否还有新的中断到来
 			continue;
 		}
+		//没有中断了，退出。
 		break;
 	} while (1);
 }
@@ -1040,16 +1053,30 @@ static void __init __gic_init_bases(unsigned int gic_nr, int irq_start,
 		 * For primary GICs, skip over SGIs.
 		 * For secondary GICs, skip over PPIs, too.
 		 */
-		if (gic_nr == 0 && (irq_start & 31) > 0) {
+		if (gic_nr == 0 && (irq_start & 31) > 0) {/* Root GIC */
+			/**
+			 * 系统支持的所有的中断数目－16。
+			 * 之所以减去16主要是因为root GIC的0～15号HW interrupt 是for IPI的，因此要去掉。也正因为如此hwirq_base从16开始
+			 */
 			hwirq_base = 16;
 			if (irq_start != -1)
 				irq_start = (irq_start & ~31) + 16;
-		} else {
+		} else {/* second GIC */
+			/**
+			 * 对于second GIC
+			 * 其0～15号HW interrupt 是for IPI的，因此要去掉。
+			 * 而16～31号HW interrupt 是for PPI的，也要去掉。
+			 * 也正因为如此hwirq_base从32开始
+			 */
 			hwirq_base = 32;
 		}
 
 		gic_irqs -= hwirq_base; /* calculate # of irqs to allocate */
 
+		/**
+		 * 对root gic来说，从16号开始搜索IRQ number
+		 * 对second gic来说，只能从root后面找到可用IRQ Number了。
+		 */
 		irq_base = irq_alloc_descs(irq_start, 16, gic_irqs,
 					   numa_node_id());
 		if (IS_ERR_VALUE(irq_base)) {
@@ -1058,6 +1085,17 @@ static void __init __gic_init_bases(unsigned int gic_nr, int irq_start,
 			irq_base = irq_start;
 		}
 
+		/**
+		 * 向系统注册irq domain并创建映射
+		 *	for root gic:
+		 *		16->16
+		 *		17->17
+		 *		more....
+		 *	for second gic:
+		 *		irq + 1->33
+		 *		irq + 2->34
+		 *		more....
+		 */
 		gic->domain = irq_domain_add_legacy(node, gic_irqs, irq_base,
 					hwirq_base, &gic_irq_domain_ops, gic);
 	}
@@ -1065,6 +1103,7 @@ static void __init __gic_init_bases(unsigned int gic_nr, int irq_start,
 	if (WARN_ON(!gic->domain))
 		return;
 
+	//root GIC
 	if (gic_nr == 0) {
 		/*
 		 * Initialize the CPU interface map to all CPUs.
@@ -1077,6 +1116,10 @@ static void __init __gic_init_bases(unsigned int gic_nr, int irq_start,
 		set_smp_cross_call(gic_raise_softirq);
 		register_cpu_notifier(&gic_cpu_notifier);
 #endif
+		/**
+		 * 设置中断处理函数
+		 * 汇编中直接进入gic_handle_irq
+		 */
 		set_handle_irq(gic_handle_irq);
 		if (static_key_true(&supports_deactivate))
 			pr_info("GIC: Using split EOI/Deactivate mode\n");
@@ -1141,6 +1184,9 @@ static bool gic_check_eoimode(struct device_node *node, void __iomem **base)
 	return true;
 }
 
+/**
+ * GIC-V2中断控制器驱动入口。
+ */
 static int __init
 gic_of_init(struct device_node *node, struct device_node *parent)
 {
@@ -1172,8 +1218,17 @@ gic_of_init(struct device_node *node, struct device_node *parent)
 	if (!gic_cnt)
 		gic_init_physaddr(node);
 
+	//second gic
 	if (parent) {
+		/**
+		 * 解析second GIC的interrupts属性，并进行mapping
+		 * 返回IRQ number
+		 */
 		irq = irq_of_parse_and_map(node, 0);
+		/**
+		 * 对级联irq要单独设置其Handle
+		 * 并且驱动不同修改这个Handle
+		 */
 		gic_cascade_irq(gic_cnt, irq);
 	}
 

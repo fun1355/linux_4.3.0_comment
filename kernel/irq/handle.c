@@ -187,12 +187,16 @@ irqreturn_t handle_irq_event(struct irq_desc *desc)
 	struct irqaction *action = desc->action;
 	irqreturn_t ret;
 
+	//在打开锁之前，需要标记这两个标志
 	desc->istate &= ~IRQS_PENDING;
 	irqd_set(&desc->irq_data, IRQD_IRQ_INPROGRESS);
+	//打开中断描述符的锁
 	raw_spin_unlock(&desc->lock);
 
+	//调用ISR
 	ret = handle_irq_event_percpu(desc, action);
 
+	//再次获得锁并清除IRQD_IRQ_INPROGRESS标志
 	raw_spin_lock(&desc->lock);
 	irqd_clear(&desc->irq_data, IRQD_IRQ_INPROGRESS);
 	return ret;

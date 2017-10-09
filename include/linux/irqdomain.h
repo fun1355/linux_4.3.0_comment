@@ -74,11 +74,30 @@ enum irq_domain_bus_token {
  * whatever internal data structures management is required. It also needs
  * to setup the irq_desc when returning from map().
  */
+/**
+ * irq_domain回调函数表
+ */
 struct irq_domain_ops {
+	/**
+	 * 判断某个irq_domain与控制器是否匹配
+	 * 一般不实现
+	 * 默认情况下，判断irq_domain的of_node是否与node相等就行了。
+	 */
 	int (*match)(struct irq_domain *d, struct device_node *node,
 		     enum irq_domain_bus_token bus_token);
+	/**
+	 * 在建立HW中断与逻辑中断关联时
+	 * 由此函数进行:
+	 *		1、设置中断描述符的irq-chip
+	 *		2、根据中断类型设置高级处理函数
+	 *		3、设置中断描述符irq-chipdata
+	 */
 	int (*map)(struct irq_domain *d, unsigned int virq, irq_hw_number_t hw);
 	void (*unmap)(struct irq_domain *d, unsigned int virq);
+	/**
+	 * 根据设备设置属性
+	 * 解析某个硬件的逻辑中断号，中断类型
+	 */
 	int (*xlate)(struct irq_domain *d, struct device_node *node,
 		     const u32 *intspec, unsigned int intsize,
 		     unsigned long *out_hwirq, unsigned int *out_type);
@@ -122,14 +141,21 @@ struct irq_domain_chip_generic;
  * @revmap_tree: Radix map tree for hwirqs that don't fit in the linear map
  * @linear_revmap: Linear table of hwirq->virq reverse mappings
  */
+/**
+ * 硬件中断与逻辑中断管理域
+ */
 struct irq_domain {
+	//通过此结构将描述符链接到全局链表irq_domain_list中
 	struct list_head link;
 	const char *name;
+	//回调函数
 	const struct irq_domain_ops *ops;
+	//中断控制器私有数据，如gic_chip_data
 	void *host_data;
 	unsigned int flags;
 
 	/* Optional data */
+	//中断控制器的DT节点
 	struct device_node *of_node;
 	enum irq_domain_bus_token bus_token;
 	struct irq_domain_chip_generic *gc;
@@ -138,10 +164,22 @@ struct irq_domain {
 #endif
 
 	/* reverse map data. The linear map gets appended to the irq_domain */
+	//最大硬中断号
 	irq_hw_number_t hwirq_max;
+	//对线性映射来说，此值未用
 	unsigned int revmap_direct_max_irq;
+	/**
+	 * 线性映射的大小
+	 * 对基树来说，其值为0
+	 */
 	unsigned int revmap_size;
+	/**
+	 * 基树映射用到的根节点
+	 */
 	struct radix_tree_root revmap_tree;
+	/**
+	 * 线性映射使用的映射表
+	 */
 	unsigned int linear_revmap[];
 };
 
@@ -198,6 +236,12 @@ static inline struct irq_domain *irq_find_host(struct device_node *node)
  * @ops: map/unmap domain callbacks
  * @host_data: Controller private data pointer
  */
+/**
+ * 向线性映射表中添加映射
+ *	size:			该线性映射表支持多少irq
+ *	ops:			callback函数
+ *	host_data:	driver私有数据
+ */
 static inline struct irq_domain *irq_domain_add_linear(struct device_node *of_node,
 					 unsigned int size,
 					 const struct irq_domain_ops *ops,
@@ -205,6 +249,10 @@ static inline struct irq_domain *irq_domain_add_linear(struct device_node *of_no
 {
 	return __irq_domain_add(of_node, size, size, 0, ops, host_data);
 }
+/**
+ * 对于PowerPC PMIC控制器，其硬件中断号可自由配置
+ * 此时不需要软件进行二次映射
+ */
 static inline struct irq_domain *irq_domain_add_nomap(struct device_node *of_node,
 					 unsigned int max_irq,
 					 const struct irq_domain_ops *ops,
@@ -220,6 +268,10 @@ static inline struct irq_domain *irq_domain_add_legacy_isa(
 	return irq_domain_add_legacy(of_node, NUM_ISA_INTERRUPTS, 0, 0, ops,
 				     host_data);
 }
+/**
+ * 向基树映射表中添加映射关系
+ * PowerPC和MIPS平台使用此函数
+ */
 static inline struct irq_domain *irq_domain_add_tree(struct device_node *of_node,
 					 const struct irq_domain_ops *ops,
 					 void *host_data)

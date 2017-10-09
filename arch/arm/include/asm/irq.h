@@ -31,6 +31,10 @@ void handle_IRQ(unsigned int, struct pt_regs *);
 void init_IRQ(void);
 
 #ifdef CONFIG_MULTI_IRQ_HANDLER
+/**
+ * 处理中断的入口函数，由汇编直接调进来
+ * 对GIC-V2来说，就是gic_handle_irq
+ */
 extern void (*handle_arch_irq)(struct pt_regs *);
 extern void set_handle_irq(void (*handle_irq)(struct pt_regs *));
 #endif

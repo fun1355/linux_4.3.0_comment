@@ -256,6 +256,9 @@ int __init early_irq_init(void)
 
 #else /* !CONFIG_SPARSE_IRQ */
 
+/**
+ * 系统中所有中断描述符
+ */
 struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned_in_smp = {
 	[0 ... NR_IRQS-1] = {
 		.handle_irq	= handle_bad_irq,
@@ -390,6 +393,7 @@ int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
 
 #ifdef CONFIG_IRQ_DOMAIN
 	if (lookup)
+		//HW中断号转逻辑中断号
 		irq = irq_find_mapping(domain, hwirq);
 #endif
 

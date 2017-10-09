@@ -436,25 +436,37 @@ static void cond_unmask_irq(struct irq_desc *desc)
 void handle_level_irq(struct irq_desc *desc)
 {
 	raw_spin_lock(&desc->lock);
+	/**
+	 * 电平中断需要mask_and_ack
+	 * 直到EIO之后再unmask
+	 * 否则中断会不停的到达，形成伪中断
+	 */
 	mask_ack_irq(desc);
 
 	if (!irq_may_run(desc))
 		goto out_unlock;
 
+	//电平中断不需要重新触发
 	desc->istate &= ~(IRQS_REPLAY | IRQS_WAITING);
+	//中断计数
 	kstat_incr_irqs_this_cpu(desc);
 
 	/*
 	 * If its disabled or no action available
 	 * keep it masked and get out of here
 	 */
+	/**
+	 * 中断被禁止了，等待重新触发
+	 */
 	if (unlikely(!desc->action || irqd_irq_disabled(&desc->irq_data))) {
 		desc->istate |= IRQS_PENDING;
 		goto out_unlock;
 	}
 
+	//调用ISR
 	handle_irq_event(desc);
 
+	//如果没有被禁止，就UNMASK
 	cond_unmask_irq(desc);
 
 out_unlock:
@@ -556,10 +568,17 @@ EXPORT_SYMBOL_GPL(handle_fasteoi_irq);
  *	the handler was running. If all pending interrupts are handled, the
  *	loop is left.
  */
+/**
+ * 边缘触发的中断处理函数
+ */
 void handle_edge_irq(struct irq_desc *desc)
 {
 	raw_spin_lock(&desc->lock);
 
+	/**
+	 * IRQS_REPLAY:重新触发，此处需要清除
+	 * IRQS_WAITING:与中断探测相关
+	 */
 	desc->istate &= ~(IRQS_REPLAY | IRQS_WAITING);
 
 	if (!irq_may_run(desc)) {
@@ -572,19 +591,30 @@ void handle_edge_irq(struct irq_desc *desc)
 	 * If its disabled or no action available then mask it and get
 	 * out of here.
 	 */
+	/**
+	 * 中断被其他核禁止了
+	 * 或者没有设置ISR
+	 */
 	if (irqd_irq_disabled(&desc->irq_data) || !desc->action) {
+		/**
+		 * 重新触发，等待重新打开的时候弥补一下
+		 */
 		desc->istate |= IRQS_PENDING;
 		mask_ack_irq(desc);
 		goto out_unlock;
 	}
 
+	//更新IRQ统计信息
 	kstat_incr_irqs_this_cpu(desc);
 
 	/* Start handling the irq */
+	//应答中断
 	desc->irq_data.chip->irq_ack(&desc->irq_data);
 
 	do {
+		//这里需要再次判断一下
 		if (unlikely(!desc->action)) {
+			//没有ISR，需要将中断Mask掉
 			mask_irq(desc);
 			goto out_unlock;
 		}
@@ -594,14 +624,20 @@ void handle_edge_irq(struct irq_desc *desc)
 		 * one, we could have masked the irq.
 		 * Renable it, if it was not disabled in meantime.
 		 */
+		/* 其他核上面收到了同一个中断 */
 		if (unlikely(desc->istate & IRQS_PENDING)) {
 			if (!irqd_irq_disabled(&desc->irq_data) &&
 			    irqd_irq_masked(&desc->irq_data))
+			    //重新打开中断
 				unmask_irq(desc);
 		}
 
+		//调用ISR处理中断
 		handle_irq_event(desc);
 
+	/**
+	 * 再次触发了中断，本核继续处理
+	 */
 	} while ((desc->istate & IRQS_PENDING) &&
 		 !irqd_irq_disabled(&desc->irq_data));
 
@@ -754,6 +790,10 @@ __irq_do_set_handler(struct irq_desc *desc, irq_flow_handler_t handle,
 	desc->handle_irq = handle;
 	desc->name = name;
 
+	/**
+	 * 这里需要注意
+	 * 对于级联irq，要特殊处理一下
+	 */
 	if (handle != handle_bad_irq && is_chained) {
 		irq_settings_set_noprobe(desc);
 		irq_settings_set_norequest(desc);

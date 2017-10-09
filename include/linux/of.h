@@ -69,9 +69,15 @@ struct device_node {
 };
 
 #define MAX_PHANDLE_ARGS 16
+/**
+ * phandle及其参数
+ */
 struct of_phandle_args {
+	/* 设备节点 */
 	struct device_node *np;
+	/* phandle参数个数 */
 	int args_count;
+	/* 所有参数 */
 	uint32_t args[MAX_PHANDLE_ARGS];
 };
 

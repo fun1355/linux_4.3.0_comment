@@ -135,14 +135,24 @@ EXPORT_SYMBOL(outer_cache);
  */
 int __cpu_architecture __read_mostly = CPU_ARCH_UNKNOWN;
 
+/**
+ * ARM中断模式栈
+ * 在cpu_init中设置
+ */
 struct stack {
+	//中断栈
 	u32 irq[3];
+	//abt/und/fiq的栈
 	u32 abt[3];
 	u32 und[3];
 	u32 fiq[3];
 } ____cacheline_aligned;
 
 #ifndef CONFIG_CPU_V7M
+/**
+ * 用于中断处理
+ * 在转到SVC模式前，由IRQ模式的汇编使用
+ */
 static struct stack stacks[NR_CPUS];
 #endif
 
@@ -499,10 +509,10 @@ void notrace cpu_init(void)
 	 * 设置各种异常和中断的堆栈入口。
 	 */
 	__asm__ (
-	"msr	cpsr_c, %1\n\t"
-	"add	r14, %0, %2\n\t"
+	"msr	cpsr_c, %1\n\t"/* 进入IRQ模式 */
+	"add	r14, %0, %2\n\t" /* r14是irq中断栈地址 */
 	"mov	sp, r14\n\t"
-	"msr	cpsr_c, %3\n\t"
+	"msr	cpsr_c, %3\n\t" /* 分别进入ABT、UND、FIQ模式，并设置其堆栈 */
 	"add	r14, %0, %4\n\t"
 	"mov	sp, r14\n\t"
 	"msr	cpsr_c, %5\n\t"
@@ -511,7 +521,7 @@ void notrace cpu_init(void)
 	"msr	cpsr_c, %7\n\t"
 	"add	r14, %0, %8\n\t"
 	"mov	sp, r14\n\t"
-	"msr	cpsr_c, %9"
+	"msr	cpsr_c, %9"	/* 退回SVC模式 */
 	    :
 	    : "r" (stk),
 	      PLC (PSR_F_BIT | PSR_I_BIT | IRQ_MODE),
@@ -523,7 +533,7 @@ void notrace cpu_init(void)
 	      PLC (PSR_F_BIT | PSR_I_BIT | FIQ_MODE),
 	      "I" (offsetof(struct stack, fiq[0])),
 	      PLC (PSR_F_BIT | PSR_I_BIT | SVC_MODE)
-	    : "r14");
+	    : "r14");/* clobber list，表示r14会被汇编使用 */
 #endif
 }
 

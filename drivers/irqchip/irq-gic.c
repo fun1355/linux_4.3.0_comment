@@ -166,6 +166,9 @@ static int gic_peek_irq(struct irq_data *d, u32 offset)
 	return !!(readl_relaxed(gic_dist_base(d) + offset + (gic_irq(d) / 32) * 4) & mask);
 }
 
+/**
+ * Mask一个中断
+ */
 static void gic_mask_irq(struct irq_data *d)
 {
 	gic_poke_irq(d, GIC_DIST_ENABLE_CLEAR);
@@ -186,11 +189,17 @@ static void gic_eoimode1_mask_irq(struct irq_data *d)
 		gic_poke_irq(d, GIC_DIST_ACTIVE_CLEAR);
 }
 
+/**
+ * UNMASK一个中断
+ */
 static void gic_unmask_irq(struct irq_data *d)
 {
 	gic_poke_irq(d, GIC_DIST_ENABLE_SET);
 }
 
+/**
+ * 结束一个中断
+ */
 static void gic_eoi_irq(struct irq_data *d)
 {
 	writel_relaxed(gic_irq(d), gic_cpu_base(d) + GIC_CPU_EOI);
@@ -254,16 +263,25 @@ static int gic_irq_get_irqchip_state(struct irq_data *d,
 	return 0;
 }
 
+/**
+ * 设置中断类型
+ */
 static int gic_set_type(struct irq_data *d, unsigned int type)
 {
 	void __iomem *base = gic_dist_base(d);
 	unsigned int gicirq = gic_irq(d);
 
 	/* Interrupt configuration for SGIs can't be changed */
+	/**
+	 * SGI不能修改其中断类型，总是边缘触发
+	 */
 	if (gicirq < 16)
 		return -EINVAL;
 
 	/* SPIs have restrictions on the supported types */
+	/**
+	 * SPI只能设置为高电平触发或者边缘触发
+	 */
 	if (gicirq >= 32 && type != IRQ_TYPE_LEVEL_HIGH &&
 			    type != IRQ_TYPE_EDGE_RISING)
 		return -EINVAL;
@@ -285,10 +303,18 @@ static int gic_irq_set_vcpu_affinity(struct irq_data *d, void *vcpu)
 }
 
 #ifdef CONFIG_SMP
+/**
+ * 设置中断亲和性
+ */
 static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 			    bool force)
 {
 	void __iomem *reg = gic_dist_base(d) + GIC_DIST_TARGET + (gic_irq(d) & ~3);
+	/**
+	 * 支持8个CPU
+	 * 因此每个Interrupt Processor Targets Registers包含4个中断设置
+	 * 这里计算其位置
+	 */
 	unsigned int cpu, shift = (gic_irq(d) % 4) * 8;
 	u32 val, mask, bit;
 	unsigned long flags;
@@ -427,8 +453,19 @@ static u8 gic_get_cpumask(struct gic_chip_data *gic)
 	void __iomem *base = gic_data_dist_base(gic);
 	u32 mask, i;
 
+	/**
+	 * 前32个中断，不能指定其目标CPU
+	 * 因此GIC_DIST_TARGETn寄存器为只读，代表当前CPU位于哪个端口上。
+	 */
 	for (i = mask = 0; i < 32; i += 4) {
+		/**
+		 * Interrupt Processor Targets Registers
+		 */
 		mask = readl_relaxed(base + GIC_DIST_TARGET + i);
+		/**
+		 * 实际上，GIC-V2只支持8个CPU
+		 * 因此只有其中8位是有效的
+		 */
 		mask |= mask >> 16;
 		mask |= mask >> 8;
 		if (mask)
@@ -456,6 +493,7 @@ static void gic_cpu_if_up(struct gic_chip_data *gic)
 	bypass = readl(cpu_base + GIC_CPU_CTRL);
 	bypass &= GICC_DIS_BYPASS_MASK;
 
+	//打开中断
 	writel_relaxed(bypass | mode | GICC_ENABLE, cpu_base + GIC_CPU_CTRL);
 }
 
@@ -467,19 +505,29 @@ static void __init gic_dist_init(struct gic_chip_data *gic)
 	unsigned int gic_irqs = gic->gic_irqs;
 	void __iomem *base = gic_data_dist_base(gic);
 
+	/**
+	 * Distributor Control Register用来控制全局的中断forward情况。
+	 * 写入0表示Distributor不向CPU interface发送中断请求信号，也就disable了全部的中断请求
+	 */
 	writel_relaxed(GICD_DISABLE, base + GIC_DIST_CTRL);
 
 	/*
 	 * Set all global interrupts to this CPU only.
 	 */
+	//获得当前CPU的硬件编号
 	cpumask = gic_get_cpumask(gic);
 	cpumask |= cpumask << 8;
 	cpumask |= cpumask << 16;
+	//设置所有中断仅仅送到当前CPU
 	for (i = 32; i < gic_irqs; i += 4)
 		writel_relaxed(cpumask, base + GIC_DIST_TARGET + i * 4 / 4);
 
+	/**
+	 * 配置默认值，如中断类型
+	 */
 	gic_dist_config(base, gic_irqs, NULL);
 
+	//打开中断
 	writel_relaxed(GICD_ENABLE, base + GIC_DIST_CTRL);
 }
 
@@ -495,7 +543,7 @@ static void gic_cpu_init(struct gic_chip_data *gic)
 	 * because any nested/secondary GICs do not directly interface
 	 * with the CPU(s).
 	 */
-	if (gic == &gic_data[0]) {
+	if (gic == &gic_data[0]) {/* 只需要初始化一次，针对root GIC即可 */
 		/*
 		 * Get what the GIC says our CPU mask is.
 		 */
@@ -514,6 +562,10 @@ static void gic_cpu_init(struct gic_chip_data *gic)
 
 	gic_cpu_config(dist_base, NULL);
 
+	/**
+	 * 中断优先级0xa0，GICC_INT_PRI_THRESHOLD = 0xf0
+	 * OK
+	 */
 	writel_relaxed(GICC_INT_PRI_THRESHOLD, base + GIC_CPU_PRIMASK);
 	gic_cpu_if_up(gic);
 }
@@ -889,6 +941,10 @@ void __init gic_init_physaddr(struct device_node *node)
 #define gic_init_physaddr(node)  do { } while (0)
 #endif
 
+/**
+ * 创建IRQ number和GIC hw interrupt ID之间映射关系的时候
+ * 需要调用该回调函数。
+ */
 static int gic_irq_domain_map(struct irq_domain *d, unsigned int irq,
 				irq_hw_number_t hw)
 {
@@ -899,12 +955,22 @@ static int gic_irq_domain_map(struct irq_domain *d, unsigned int irq,
 			chip = &gic_eoimode1_chip;
 	}
 
+	/**
+	 * SGI或者PPI和SPI最大的不同是per cpu的
+	 * SPI是所有CPU共享的，因此需要分配per cpu的内存
+	 * 设定一些per cpu的flag
+	 */
 	if (hw < 32) {
 		irq_set_percpu_devid(irq);
+		/**
+		 * 设定该中断描述符的irq chip和high level的handler
+		 */
 		irq_domain_set_info(d, irq, hw, chip, d->host_data,
 				    handle_percpu_devid_irq, NULL, NULL);
 		irq_set_status_flags(irq, IRQ_NOAUTOEN);
+	/* SPI */
 	} else {
+		/* 默认handle_fasteoi_irq */
 		irq_domain_set_info(d, irq, hw, chip, d->host_data,
 				    handle_fasteoi_irq, NULL, NULL);
 		irq_set_probe(irq);
@@ -916,6 +982,9 @@ static void gic_irq_domain_unmap(struct irq_domain *d, unsigned int irq)
 {
 }
 
+/**
+ * 解析DT中的中断属性
+ */
 static int gic_irq_domain_xlate(struct irq_domain *d,
 				struct device_node *controller,
 				const u32 *intspec, unsigned int intsize,
@@ -925,16 +994,26 @@ static int gic_irq_domain_xlate(struct irq_domain *d,
 
 	if (d->of_node != controller)
 		return -EINVAL;
+	/**
+	 * interrupt specifier包括3个cell
+	 * 分别是interrupt type（0 表示SPI，1表示PPI）
+	 * interrupt number（对于PPI，范围是[0-15]，对于SPI，范围是[0-987]）
+	 * interrupt flag（触发方式）
+	 */
 	if (intsize < 3)
 		return -EINVAL;
 
 	/* Get the interrupt number and add 16 to skip over SGIs */
+	/**
+	 * GIC interrupt specifier中的interrupt number需要加上16
+	 */
 	*out_hwirq = intspec[1] + 16;
 
 	/* For SPIs, we need to add 16 more to get the GIC irq ID number */
 	if (!intspec[0])
 		*out_hwirq += 16;
 
+	/* 后三位是触发方式 */
 	*out_type = intspec[2] & IRQ_TYPE_SENSE_MASK;
 
 	return ret;
@@ -1038,6 +1117,7 @@ static void __init __gic_init_bases(unsigned int gic_nr, int irq_start,
 	 * Find out how many interrupts are supported.
 	 * The GIC only supports up to 1020 interrupt sources.
 	 */
+	/* GIC支持的中断数量 */
 	gic_irqs = readl_relaxed(gic_data_dist_base(gic) + GIC_DIST_CTR) & 0x1f;
 	gic_irqs = (gic_irqs + 1) * 32;
 	if (gic_irqs > 1020)
@@ -1198,9 +1278,11 @@ gic_of_init(struct device_node *node, struct device_node *parent)
 	if (WARN_ON(!node))
 		return -ENODEV;
 
+	//映射GIC Distributor的寄存器地址空间
 	dist_base = of_iomap(node, 0);
 	WARN(!dist_base, "unable to map gic dist registers\n");
 
+	//映射GIC CPU interface的寄存器地址空间
 	cpu_base = of_iomap(node, 1);
 	WARN(!cpu_base, "unable to map gic cpu registers\n");
 
@@ -1211,9 +1293,14 @@ gic_of_init(struct device_node *node, struct device_node *parent)
 	if (gic_cnt == 0 && !gic_check_eoimode(node, &cpu_base))
 		static_key_slow_dec(&supports_deactivate);
 
+	/**
+	 * 如果每个CPU可以通过统一的寄存器地址去访问各自的专属寄存器
+	 * 那么就不用设置cpu-offset
+	 */
 	if (of_property_read_u32(node, "cpu-offset", &percpu_offset))
 		percpu_offset = 0;
 
+	//主初始化函数
 	__gic_init_bases(gic_cnt, -1, dist_base, cpu_base, percpu_offset, node);
 	if (!gic_cnt)
 		gic_init_physaddr(node);

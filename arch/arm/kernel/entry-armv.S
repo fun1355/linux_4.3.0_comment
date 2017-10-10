@@ -492,6 +492,9 @@ __irq_usr:
  * 如果在用户态下处理原子操作，此时需要特殊处理。
  */
 	kuser_cmpxchg_check
+/**
+ * 处理中断
+ */
 	irq_handler
 /**
  * 从r9中取得当前进程的threadinfo
@@ -1104,6 +1107,9 @@ vector_\name:
  * 调整返回值
  */
 	.if \correction
+/**
+ * 中断、异常返回值
+ */
 	sub	lr, lr, #\correction
 	.endif
 
@@ -1115,7 +1121,7 @@ vector_\name:
  * 保存r0,lr,和spsr
  * 注意堆栈空间只有几个字节，以后应该会再切换堆栈的。
  */
-	stmia	sp, {r0, lr}		@ save r0, lr
+	stmia	sp, {r0, lr}		@ save r0, lr  /* 这里将r0保存起来，因为r0后面会被破坏 */
 /**
  * 后四位应该是异常时CPU所处的模式
  */

@@ -98,7 +98,7 @@ void gic_cpu_config(void __iomem *base, void (*sync_access)(void))
 	/*
 	 * Set priority on PPI and SGI interrupts
 	 */
-	for (i = 0; i < 32; i += 4)
+	for (i = 0; i < 32; i += 4)/* 设置优先级，高于门阀值，这样中断才真的到达CPU */
 		writel_relaxed(GICD_INT_DEF_PRI_X4,
 					base + GIC_DIST_PRI + i * 4 / 4);
 

@@ -66,6 +66,10 @@ typedef __kernel_ptrdiff_t	ptrdiff_t;
 
 #ifndef _TIME_T
 #define _TIME_T
+/**
+ * POSIX标准定义的一个以秒计的时间值
+ * 从UTC时间到当前时间的秒数
+ */
 typedef __kernel_time_t		time_t;
 #endif
 

@@ -32,15 +32,22 @@ static int check_clock(const clockid_t which_clock)
 {
 	int error = 0;
 	struct task_struct *p;
+	/**
+	 * 前29位是进程ID的反码
+	 * 用反码是为了确保它是一个负数
+	 */
 	const pid_t pid = CPUCLOCK_PID(which_clock);
 
+	/* 只有三个固定CLOCK */
 	if (CPUCLOCK_WHICH(which_clock) >= CPUCLOCK_MAX)
 		return -EINVAL;
 
+	/* 当前进程的时钟 */
 	if (pid == 0)
 		return 0;
 
 	rcu_read_lock();
+	/* 查找pid对应的线程，看其是否真的存在 */
 	p = find_task_by_vpid(pid);
 	if (!p || !(CPUCLOCK_PERTHREAD(which_clock) ?
 		   same_thread_group(p, current) : has_group_leader_pid(p))) {
@@ -143,16 +150,20 @@ static inline unsigned long long virt_ticks(struct task_struct *p)
 static int
 posix_cpu_clock_getres(const clockid_t which_clock, struct timespec *tp)
 {
+	/* 检查参数 */
 	int error = check_clock(which_clock);
-	if (!error) {
+	if (!error) {/* ID正确 */
 		tp->tv_sec = 0;
+		/* 默认精度就是HZ */
 		tp->tv_nsec = ((NSEC_PER_SEC + HZ - 1) / HZ);
+		/* 对SCHED时钟来说 */
 		if (CPUCLOCK_WHICH(which_clock) == CPUCLOCK_SCHED) {
 			/*
 			 * If sched_clock is using a cycle counter, we
 			 * don't have any idea of its true resolution
 			 * exported, but it is much more than 1s/HZ.
 			 */
+			/* 精度是纳秒 */
 			tp->tv_nsec = 1;
 		}
 	}
@@ -184,12 +195,15 @@ static int cpu_clock_sample(const clockid_t which_clock, struct task_struct *p,
 	default:
 		return -EINVAL;
 	case CPUCLOCK_PROF:
+		/* 用户态和内核态的时间 */
 		*sample = prof_ticks(p);
 		break;
 	case CPUCLOCK_VIRT:
+		/* 用户态的时间 */
 		*sample = virt_ticks(p);
 		break;
 	case CPUCLOCK_SCHED:
+		/* Sched时间 */
 		*sample = task_sched_runtime(p);
 		break;
 	}
@@ -291,31 +305,42 @@ static int posix_cpu_clock_get_task(struct task_struct *tsk,
 	int err = -EINVAL;
 	unsigned long long rtn;
 
-	if (CPUCLOCK_PERTHREAD(which_clock)) {
+	if (CPUCLOCK_PERTHREAD(which_clock)) {/* 线程的时间 */
+		/**
+		 * 必须和调用者是同一个线程组
+		 */
 		if (same_thread_group(tsk, current))
+			/**
+			 * 获得线程的时间
+			 */
 			err = cpu_clock_sample(which_clock, tsk, &rtn);
-	} else {
+	} else {/* 进程的时间 */
 		if (tsk == current || thread_group_leader(tsk))
+			/* 获取进程组的时间 */
 			err = cpu_clock_sample_group(which_clock, tsk, &rtn);
 	}
 
-	if (!err)
+	if (!err)/* 将结果赋值 */
 		sample_to_timespec(which_clock, rtn, tp);
 
 	return err;
 }
 
 
+/**
+ * 获得posix cpu时钟
+ */
 static int posix_cpu_clock_get(const clockid_t which_clock, struct timespec *tp)
 {
 	const pid_t pid = CPUCLOCK_PID(which_clock);
 	int err = -EINVAL;
 
-	if (pid == 0) {
+	if (pid == 0) {/* 获取当前线程的时间 */
 		/*
 		 * Special case constant value for our own clocks.
 		 * We don't have to do any lookup to find ourselves.
 		 */
+		/* 获取线程的CPU时间 */
 		err = posix_cpu_clock_get_task(current, which_clock, tp);
 	} else {
 		/*
@@ -324,8 +349,10 @@ static int posix_cpu_clock_get(const clockid_t which_clock, struct timespec *tp)
 		 */
 		struct task_struct *p;
 		rcu_read_lock();
+		/* 根据pid查找线程描述符 */
 		p = find_task_by_vpid(pid);
 		if (p)
+			/* 获取线程的CPU时间 */
 			err = posix_cpu_clock_get_task(p, which_clock, tp);
 		rcu_read_unlock();
 	}

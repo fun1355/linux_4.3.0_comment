@@ -157,6 +157,9 @@ extern void do_sys_times(struct tms *);
  * Similar to the struct tm in userspace <time.h>, but it needs to be here so
  * that the kernel source is self contained.
  */
+/**
+ * 人类世界的时间
+ */
 struct tm {
 	/*
 	 * the number of seconds after the minute, normally in the range

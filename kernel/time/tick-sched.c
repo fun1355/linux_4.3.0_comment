@@ -65,7 +65,7 @@ static void tick_do_update_jiffies64(ktime_t now)
 	write_seqlock(&jiffies_lock);
 
 	delta = ktime_sub(now, last_jiffies_update);
-	if (delta.tv64 >= tick_period.tv64) {
+	if (delta.tv64 >= tick_period.tv64) {/* 距离上次tick已经起来一个tick */
 
 		delta = ktime_sub(delta, tick_period);
 		last_jiffies_update = ktime_add(last_jiffies_update,
@@ -80,6 +80,9 @@ static void tick_do_update_jiffies64(ktime_t now)
 			last_jiffies_update = ktime_add_ns(last_jiffies_update,
 							   incr * ticks);
 		}
+		/**
+		 * 来修改jiffies，计算系统负荷
+		 */
 		do_timer(++ticks);
 
 		/* Keep the tick_next_period variable up to date */
@@ -89,6 +92,7 @@ static void tick_do_update_jiffies64(ktime_t now)
 		return;
 	}
 	write_sequnlock(&jiffies_lock);
+	/* 更新系统时间 */
 	update_wall_time();
 }
 
@@ -131,6 +135,9 @@ static void tick_sched_do_timer(ktime_t now)
 		tick_do_update_jiffies64(now);
 }
 
+/**
+ * NO_HZ情况下，处理sched tick
+ */
 static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 {
 #ifdef CONFIG_NO_HZ_COMMON
@@ -148,7 +155,9 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 			ts->idle_jiffies++;
 	}
 #endif
+	/* 更新进程时间 */
 	update_process_times(user_mode(regs));
+	/* 内核剖析相关的操作 */
 	profile_tick(CPU_PROFILING);
 }
 

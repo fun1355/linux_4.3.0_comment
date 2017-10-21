@@ -206,6 +206,9 @@ static const struct file_operations posix_clock_file_operations = {
 #endif
 };
 
+/**
+ * 注册posix动态时钟
+ */
 int posix_clock_register(struct posix_clock *clk, dev_t devid)
 {
 	int err;
@@ -229,6 +232,9 @@ static void delete_clock(struct kref *kref)
 		clk->release(clk);
 }
 
+/**
+ * 注销posix动态时钟
+ */
 void posix_clock_unregister(struct posix_clock *clk)
 {
 	cdev_del(&clk->cdev);

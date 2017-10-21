@@ -114,12 +114,25 @@ struct posix_clock_operations {
  * structure, obtaining a reference to it during callbacks using
  * container_of().
  */
+/**
+ * POSIX动态时钟
+ * 与传统时钟相比，它可以创建更多的时钟
+ */
 struct posix_clock {
+	/**
+	 * 操作函数集
+	 * 分timer,clock,proc相关函数
+	 */
 	struct posix_clock_operations ops;
+	/* 时钟对应的字符设备 */
 	struct cdev cdev;
+	/* 引用计数 */
 	struct kref kref;
+	/* 保护底层设备的状态 */
 	struct rw_semaphore rwsem;
+	/* 底层设备是否被移除 */
 	bool zombie;
+	/* 当引用计数变为0时，回调此函数清除底层数据结构 */
 	void (*release)(struct posix_clock *clk);
 };
 

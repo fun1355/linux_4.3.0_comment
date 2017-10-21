@@ -164,6 +164,9 @@ typedef struct siginfo {
 #define SI_USER		0		/* sent by kill, sigsend, raise */
 #define SI_KERNEL	0x80		/* sent by the kernel from somewhere */
 #define SI_QUEUE	-1		/* sent by sigqueue */
+/**
+ * 信号是由于posix timer而产生的。
+ */
 #define SI_TIMER __SI_CODE(__SI_TIMER,-2) /* sent by timer expiration */
 #define SI_MESGQ __SI_CODE(__SI_MESGQ,-3) /* sent by real time mesq state change */
 #define SI_ASYNCIO	-4		/* sent by AIO completion */
@@ -265,9 +268,25 @@ typedef struct siginfo {
  * thread manager then catches and does the appropriate nonsense.
  * However, everything is written out here so as to not get lost.
  */
+/**
+ * 使用sinal这样的异步通知方式。
+ * 发送的信号由sigev_signo定义。
+ * 如果发送的是realtime signal，该信号的附加数据由sigev_value定义。
+ */
 #define SIGEV_SIGNAL	0	/* notify via signal */
+/**
+ * 不需要异步通知
+ * 程序自己调用timer_gettime来轮询timer的当前状态
+ */
 #define SIGEV_NONE	1	/* other notification: meaningless */
+/**
+ * 创建一个线程执行timer超期callback函数
+ */
 #define SIGEV_THREAD	2	/* deliver via thread creation */
+/**
+ * 行为和SIGEV_SIGNAL类似
+ * 不过发送的信号被送达进程内的一个指定的线程
+ */
 #define SIGEV_THREAD_ID 4	/* deliver to thread */
 
 /*
@@ -283,15 +302,32 @@ typedef struct siginfo {
 		/ sizeof(int))
 
 typedef struct sigevent {
+	/**
+	 * sigev_notify = SIGEV_SIGNAL时，并且发送的是实时信号时，
+	 * 所发送的信号附加数据 
+	 */
 	sigval_t sigev_value;
+	/**
+	 * sigev_notify = SIGEV_SIGNAL时，所发送的信号
+	 */
 	int sigev_signo;
+	/**
+	 * time超时后，如何通知线程
+	 * 如SIGEV_NONE
+	 */
 	int sigev_notify;
 	union {
 		int _pad[SIGEV_PAD_SIZE];
+		/**
+		 * 当sigev_notify = SIGEV_THREAD_ID时，接收信号的线程ID
+		 */
 		 int _tid;
 
 		struct {
 			void (*_function)(sigval_t);
+			/**
+			 * sigev_notify = SIGEV_THREAD时，所创建线程的属性
+			 */
 			void *_attribute;	/* really pthread_attr_t */
 		} _sigev_thread;
 	} _sigev_un;

@@ -81,6 +81,9 @@ struct clocksource {
 	const char *name;
 	struct list_head list;
 	int rating;
+	/**
+	 * 启用时钟源
+	 */
 	int (*enable)(struct clocksource *cs);
 	void (*disable)(struct clocksource *cs);
 	unsigned long flags;
@@ -106,6 +109,9 @@ struct clocksource {
 #define CLOCK_SOURCE_WATCHDOG			0x10
 #define CLOCK_SOURCE_VALID_FOR_HRES		0x20
 #define CLOCK_SOURCE_UNSTABLE			0x40
+/**
+ * 挂起时会继续运行而不停止
+ */
 #define CLOCK_SOURCE_SUSPEND_NONSTOP		0x80
 #define CLOCK_SOURCE_RESELECT			0x100
 

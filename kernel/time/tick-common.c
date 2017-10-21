@@ -78,18 +78,25 @@ int tick_is_oneshot_available(void)
  */
 static void tick_periodic(int cpu)
 {
+	/* 全局时钟 */
 	if (tick_do_timer_cpu == cpu) {
 		write_seqlock(&jiffies_lock);
 
 		/* Keep track of the next tick event */
 		tick_next_period = ktime_add(tick_next_period, tick_period);
 
+		/* 修改jiffies，计算系统负荷。 */
 		do_timer(1);
 		write_sequnlock(&jiffies_lock);
+		/* 更新系统时间 */
 		update_wall_time();
 	}
 
+	/**
+	 * 更新当前系统运行时间
+	 */
 	update_process_times(user_mode(get_irq_regs()));
+	/* 处理profile */
 	profile_tick(CPU_PROFILING);
 }
 

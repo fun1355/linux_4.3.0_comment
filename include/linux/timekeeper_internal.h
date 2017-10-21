@@ -80,21 +80,47 @@ struct tk_read_base {
  * wall_to_monotonic is no longer the boot time, getboottime must be
  * used instead.
  */
+/**
+ * 维护time line，real time clock，monotonic clock、monotonic raw clock的描述符
+ */
 struct timekeeper {
+	/**
+	 * 用于CLOCK_MONOTONIC和CLOCK_MONOTONIC_RAW的硬件
+	 */
 	struct tk_read_base	tkr_mono;
 	struct tk_read_base	tkr_raw;
+	/**
+	 * CLOCK_REALTIME类型的系统时钟
+	 */
 	u64			xtime_sec;
 	unsigned long		ktime_sec;
+	/**
+	 * CLOCK_MONOTONIC类型的系统时钟。
+	 * 定义了monotonic clock到real time clock的偏移
+	 */
 	struct timespec64	wall_to_monotonic;
 	ktime_t			offs_real;
+	/**
+	 * 系统启动时间
+	 */
 	ktime_t			offs_boot;
 	ktime_t			offs_tai;
+	/**
+	 * CLOCK_TAI类型的系统时钟。
+	 * 即原子钟
+	 */
 	s32			tai_offset;
 	unsigned int		clock_was_set_seq;
 	ktime_t			next_leap_ktime;
+	/**
+	 * CLOCK_MONOTONIC_RAW类型的系统时钟
+	 */
 	struct timespec64	raw_time;
 
 	/* The following members are for timekeeping internal use */
+	/**
+	 * 每个tick对应的cycles
+	 */
 	cycle_t			cycle_interval;
 	u64			xtime_interval;
 	s64			xtime_remainder;
@@ -104,6 +130,9 @@ struct timekeeper {
 	 * length for an entire tick, as ntp_tick_length may change
 	 * mid-tick, and we don't want to apply that new value to
 	 * the tick in progress.
+	 */
+	/**
+	 * NTP相关字段
 	 */
 	u64			ntp_tick;
 	/* Difference between accumulated time and NTP time in ntp

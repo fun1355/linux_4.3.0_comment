@@ -170,9 +170,15 @@ static inline struct timespec64 timespec64_sub(struct timespec64 lhs,
 static inline bool timespec64_valid(const struct timespec64 *ts)
 {
 	/* Dates before 1970 are bogus */
+	/**
+	 * 秒数值要大于等于0
+	 */
 	if (ts->tv_sec < 0)
 		return false;
 	/* Can't have more nanoseconds then a second */
+	/**
+	 * 纳秒值要小于NSEC_PER_SEC
+	 */
 	if ((unsigned long)ts->tv_nsec >= NSEC_PER_SEC)
 		return false;
 	return true;
@@ -183,6 +189,9 @@ static inline bool timespec64_valid_strict(const struct timespec64 *ts)
 	if (!timespec64_valid(ts))
 		return false;
 	/* Disallow values that could overflow ktime_t */
+	/**
+	 * 秒数值小于KTIME_SEC_MAX
+	 */
 	if ((unsigned long long)ts->tv_sec >= KTIME_SEC_MAX)
 		return false;
 	return true;

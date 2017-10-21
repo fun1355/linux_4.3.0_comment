@@ -22,6 +22,10 @@ struct timespec64 current_kernel_time64(void);
 /* does not take xtime_lock */
 struct timespec __current_kernel_time(void);
 
+/**
+ * 类似于gettimeofday
+ * 但是精度低，效率稍微快一点。
+ */
 static inline struct timespec current_kernel_time(void)
 {
 	struct timespec64 now = current_kernel_time64();
@@ -46,6 +50,9 @@ extern void getboottime64(struct timespec64 *ts);
 /**
  * Deprecated. Use do_settimeofday64().
  */
+/**
+ * 设置时间
+ */
 static inline int do_settimeofday(const struct timespec *ts)
 {
 	return do_settimeofday64(ts);
@@ -66,6 +73,9 @@ static inline void ktime_get_ts(struct timespec *ts)
 	ktime_get_ts64(ts);
 }
 
+/**
+ * 获取real time clock的时间值
+ */
 static inline void ktime_get_real_ts(struct timespec *ts)
 {
 	getnstimeofday64(ts);
@@ -76,6 +86,9 @@ static inline void getrawmonotonic(struct timespec *ts)
 	getrawmonotonic64(ts);
 }
 
+/**
+ * 获取低精度的monotonic clock
+ */
 static inline struct timespec get_monotonic_coarse(void)
 {
 	return get_monotonic_coarse64();
@@ -174,6 +187,9 @@ extern u32 ktime_get_resolution_ns(void);
 /**
  * ktime_get_real - get the real (wall-) time in ktime_t format
  */
+/**
+ * 获取real time clock的时间值
+ */
 static inline ktime_t ktime_get_real(void)
 {
 	return ktime_get_with_offset(TK_OFFS_REAL);
@@ -185,6 +201,12 @@ static inline ktime_t ktime_get_real(void)
  * This is similar to CLOCK_MONTONIC/ktime_get, but also includes the
  * time spent in suspend.
  */
+/**
+ * 获取boot clock的时间值
+ * monotonic clock，它是不记录系统睡眠时间的
+ * 因此monotonic clock得到的是一个system uptime。
+ * 而boot clock计算睡眠时间，直到系统reboot。
+ */
 static inline ktime_t ktime_get_boottime(void)
 {
 	return ktime_get_with_offset(TK_OFFS_BOOT);
@@ -192,6 +214,10 @@ static inline ktime_t ktime_get_boottime(void)
 
 /**
  * ktime_get_clocktai - Returns the TAI time of day in ktime_t format
+ */
+/**
+ * 获取TAI clock的时间值
+ * 原子钟，不可修改
  */
 static inline ktime_t ktime_get_clocktai(void)
 {
@@ -236,6 +262,10 @@ extern u64 ktime_get_raw_fast_ns(void);
 
 /*
  * Timespec interfaces utilizing the ktime based ones
+ */
+/**
+ * 获得boottime，与ktime_get_boottime类似
+ * 但是返回格式不同
  */
 static inline void get_monotonic_boottime(struct timespec *ts)
 {

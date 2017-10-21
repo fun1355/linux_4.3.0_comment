@@ -754,6 +754,11 @@ COMPAT_SYSCALL_DEFINE2(clock_settime, clockid_t, which_clock,
 	return err;
 }
 
+/**
+ * 获取从linux epoch到当前时间点的秒数以及微秒数
+ * 新的接口
+ * 	which_clock:	如CLOCK_REALTIME
+ */
 COMPAT_SYSCALL_DEFINE2(clock_gettime, clockid_t, which_clock,
 		       struct compat_timespec __user *, tp)
 {
@@ -835,6 +840,11 @@ static long compat_clock_nanosleep_restart(struct restart_block *restart)
 	return err;
 }
 
+/**
+ * 类似于nanosleep
+ * 但是允许指定clockid
+ * flag:绝对时间还是相对时间
+ */
 COMPAT_SYSCALL_DEFINE4(clock_nanosleep, clockid_t, which_clock, int, flags,
 		       struct compat_timespec __user *, rqtp,
 		       struct compat_timespec __user *, rmtp)
@@ -1065,6 +1075,9 @@ COMPAT_SYSCALL_DEFINE1(stime, compat_time_t __user *, tptr)
 
 #endif /* __ARCH_WANT_COMPAT_SYS_TIME */
 
+/**
+ * 调整CLOCK_REALTIME时钟
+ */
 COMPAT_SYSCALL_DEFINE1(adjtimex, struct compat_timex __user *, utp)
 {
 	struct timex txc;

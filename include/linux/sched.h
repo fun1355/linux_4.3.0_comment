@@ -679,7 +679,9 @@ struct signal_struct {
 	unsigned int		has_child_subreaper:1;
 
 	/* POSIX.1b Interval Timers */
+	/* 进程最近分配的posix时钟ID，参照posix_timer_add */
 	int			posix_timer_id;
+	/* posix进程的时钟链表头 */
 	struct list_head	posix_timers;
 
 	/* ITIMER_REAL timer for the process */

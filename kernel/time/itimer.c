@@ -76,6 +76,11 @@ static void get_cpu_itimer(struct task_struct *tsk, unsigned int clock_id,
 	cputime_to_timeval(cinterval, &value->it_interval);
 }
 
+/**
+ * 类似于alarm
+ * 已经废弃
+ * 	which:	使用哪个timer，如ITIMER_REAL
+ */
 int do_getitimer(int which, struct itimerval *value)
 {
 	struct task_struct *tsk = current;

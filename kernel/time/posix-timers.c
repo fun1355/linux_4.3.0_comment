@@ -65,7 +65,14 @@
  */
 static struct kmem_cache *posix_timers_cache;
 
+/**
+ * È«¾ÖposixÊ±ÖÓ¹şÏ£±í
+ * 512¸öÈë¿Ú
+ */
 static DEFINE_HASHTABLE(posix_timers_hashtable, 9);
+/**
+ * ±£»¤È«¾ÖposixÊ±ÖÓµÄËø
+ */
 static DEFINE_SPINLOCK(hash_lock);
 
 /*
@@ -124,6 +131,9 @@ static DEFINE_SPINLOCK(hash_lock);
  *	    which we beg off on and pass to do_sys_settimeofday().
  */
 
+/**
+ * ¾²Ì¬¶¨ÒåµÄPosixÊ±ÖÓ
+ */
 static struct k_clock posix_clocks[MAX_CLOCKS];
 
 /*
@@ -176,19 +186,25 @@ static struct k_itimer *posix_timer_by_id(timer_t id)
 static int posix_timer_add(struct k_itimer *timer)
 {
 	struct signal_struct *sig = current->signal;
+	/**
+	 * posix_timer_idÖĞ¼ÇÂ¼ÁËÉÏÒ»´Î·ÖÅäµÄID+1
+	 * ÎÊÎÊÕâÀï¿ªÊ¼·ÖÅä£¬³É¹¦ÂÊ½Ï¸ß
+	 */
 	int first_free_id = sig->posix_timer_id;
 	struct hlist_head *head;
 	int ret = -ENOENT;
 
-	do {
+	do {/* Ñ­»·£¬Ö±µ½ÕÒµ½¿ÉÓÃID */
 		spin_lock(&hash_lock);
 		head = &posix_timers_hashtable[hash(sig, sig->posix_timer_id)];
-		if (!__posix_timers_find(head, sig, sig->posix_timer_id)) {
+		if (!__posix_timers_find(head, sig, sig->posix_timer_id)) {/* ¿ÉÓÃID */
 			hlist_add_head_rcu(&timer->t_hash, head);
 			ret = sig->posix_timer_id;
 		}
-		if (++sig->posix_timer_id < 0)
+		/* ²»¹Ü3721£¬¶¼ÒªÔö¼Ófree id */
+		if (++sig->posix_timer_id < 0)/* »ØÈÆID */
 			sig->posix_timer_id = 0;
+		/* ÕÒÁËÒ»È¦¶¼»¹Ã»ÓĞÕÒµ½£¬ÓĞµã¿Óµù */
 		if ((sig->posix_timer_id == first_free_id) && (ret == -ENOENT))
 			/* Loop over all possible ids completed */
 			ret = -EAGAIN;
@@ -284,6 +300,7 @@ static int posix_get_hrtimer_res(clockid_t which_clock, struct timespec *tp)
  */
 static __init int init_posix_timers(void)
 {
+	/* real timeÊ±ÖÓ */
 	struct k_clock clock_realtime = {
 		.clock_getres	= posix_get_hrtimer_res,
 		.clock_get	= posix_clock_realtime_get,
@@ -296,6 +313,7 @@ static __init int init_posix_timers(void)
 		.timer_get	= common_timer_get,
 		.timer_del	= common_timer_del,
 	};
+	/* monotonic Ê±ÖÓ£¬Ã»ÓĞset½Ó¿Ú */
 	struct k_clock clock_monotonic = {
 		.clock_getres	= posix_get_hrtimer_res,
 		.clock_get	= posix_ktime_get_ts,
@@ -359,16 +377,29 @@ static void schedule_next_timer(struct k_itimer *timr)
 {
 	struct hrtimer *timer = &timr->it.real.timer;
 
-	if (timr->it.real.interval.tv64 == 0)
+	if (timr->it.real.interval.tv64 == 0)/* one shotÀàĞÍµÄ£¬Ö±½ÓÍË³ö */
 		return;
 
+	/**
+	 * Éè¶¨ÏÂ´Î³¬ÆÚÊ±¼ä²¢¼ÆËãoverrun´ÎÊı
+	 */
 	timr->it_overrun += (unsigned int) hrtimer_forward(timer,
 						timer->base->get_time(),
 						timr->it.real.interval);
 
+	/**
+	 * ±£´æ¸ÃtimerµÄoverrun´ÎÊı
+	 * ĞÅºÅ´¦Àíº¯Êı»ñÈ¡¸ÃÖµ£¬À´»ñÖª±»overrunµÄ´ÎÊı
+	 */
 	timr->it_overrun_last = timr->it_overrun;
+	/* ÎªÏÂ´Î³õÊ¼»¯overrun */
 	timr->it_overrun = -1;
+	/**
+	 * Çå³ıpending±ê¼Ç²¢Ôö¼ÓĞÅºÅË½ÓĞÊı¾İÓò
+	 * Ë½ÓĞÊı¾İÓòÊÇĞÅºÅ±»·¢ËÍµÄ´ÎÊı£¬½«Æä¼Ó1
+	 */
 	++timr->it_requeue_pending;
+	/* ÖØÆô¸´Î»¶¨Ê±Æ÷ */
 	hrtimer_restart(timer);
 }
 
@@ -383,6 +414,9 @@ static void schedule_next_timer(struct k_itimer *timr)
  * To protect against the timer going away while the interrupt is queued,
  * we require that the it_requeue_pending flag be set.
  */
+/**
+ * Posix¶¨Ê±Æ÷ĞÅºÅ±»Õª³ıºó£¬ÓÉ´Ëº¯ÊıÖØÆô¶¨Ê±Æ÷
+ */
 void do_schedule_next_timer(struct siginfo *info)
 {
 	struct k_itimer *timr;
@@ -391,9 +425,9 @@ void do_schedule_next_timer(struct siginfo *info)
 	timr = lock_timer(info->si_tid, &flags);
 
 	if (timr && timr->it_requeue_pending == info->si_sys_private) {
-		if (timr->it_clock < 0)
+		if (timr->it_clock < 0)/* ¶¯Ì¬Posix¶¨Ê±Æ÷ */
 			posix_cpu_timer_schedule(timr);
-		else
+		else/* ÆÕÍ¨Posix¶¨Ê±Æ÷ */
 			schedule_next_timer(timr);
 
 		info->si_overrun += timr->it_overrun_last;
@@ -439,26 +473,42 @@ EXPORT_SYMBOL_GPL(posix_timer_event);
 
  * This code is for CLOCK_REALTIME* and CLOCK_MONOTONIC* timers.
  */
+/**
+ * ÆÕÍ¨posixÊ±ÖÓµ½ÆÚ´¦Àí»Øµ÷º¯Êı
+ */
 static enum hrtimer_restart posix_timer_fn(struct hrtimer *timer)
 {
 	struct k_itimer *timr;
 	unsigned long flags;
 	int si_private = 0;
+	/**
+	 * ¶ÔÓÚone shotÀàĞÍµÄ£¬ĞèÒª·µ»ØHRTIMER_NORESTART
+	 */
 	enum hrtimer_restart ret = HRTIMER_NORESTART;
 
+	/* »ñÈ¡¸Ã¸ß¾«¶Ètimer¶ÔÓ¦µÄÄÇ¸ök_itimerÊı¾İ */
 	timr = container_of(timer, struct k_itimer, it.real.timer);
 	spin_lock_irqsave(&timr->it_lock, flags);
 
-	if (timr->it.real.interval.tv64 != 0)
+	if (timr->it.real.interval.tv64 != 0)/* ÖÜÆÚĞÔtimer */
+		/**
+		 * ÓĞ¿ÉÄÜ»áÓĞoverrunµÄÎÊÌâ
+		 * ÕâÊ±ºò£¬ĞèÒª´«µİÒ»¸ösignalµÄË½ÓĞÊı¾İ£¬ÒÔ±ãÔÚqueue signalµÄÊ±ºò½øĞĞ±êÊ¶¡
+		 * ++timr->it_requeue_pendingÓÃÀ´±ê¼Ç¸Ãtimer´¦ÓÚpending×´Ì¬
+		 * ¼ÓÒ»¾ÍÊÇ½«LSBÉè¶¨Îª1
+		 */
 		si_private = ++timr->it_requeue_pending;
 
+	/**
+	 * ½«ĞÅºÅ¹ÒÈë½ø³Ì£¨Ïß³Ì£©signal pending¶ÓÁĞ
+	 */
 	if (posix_timer_event(timr, si_private)) {
 		/*
 		 * signal was not sent because of sig_ignor
 		 * we will not get a call back to restart it AND
 		 * it should be restarted.
 		 */
-		if (timr->it.real.interval.tv64 != 0) {
+		if (timr->it.real.interval.tv64 != 0) {/* ÖÜÆÚĞÔ¶¨Ê±Æ÷ */
 			ktime_t now = hrtimer_cb_get_time(timer);
 
 			/*
@@ -491,9 +541,11 @@ static enum hrtimer_restart posix_timer_fn(struct hrtimer *timer)
 					now = ktime_add(now, kj);
 			}
 #endif
+			/* Ôö¼Óoverrun */
 			timr->it_overrun += (unsigned int)
 				hrtimer_forward(timer, now,
 						timr->it.real.interval);
+			/* ÖØĞÂÆô¶¯Ê±ÖÓ£¬ÒÔ´¦ÀíÏÂÒ»´Îoverrun */
 			ret = HRTIMER_RESTART;
 			++timr->it_requeue_pending;
 		}
@@ -507,14 +559,14 @@ static struct pid *good_sigevent(sigevent_t * event)
 {
 	struct task_struct *rtn = current->group_leader;
 
-	if ((event->sigev_notify & SIGEV_THREAD_ID ) &&
-		(!(rtn = find_task_by_vpid(event->sigev_notify_thread_id)) ||
-		 !same_thread_group(rtn, current) ||
-		 (event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_SIGNAL))
+	if ((event->sigev_notify & SIGEV_THREAD_ID ) &&/* Ö¸¶¨ÓÉÏß³ÌÀ´´¦ÀíĞÅºÅ */
+		(!(rtn = find_task_by_vpid(event->sigev_notify_thread_id)) ||/* Ïß³ÌÈ·ÊµÒª´æÔÚ */
+		 !same_thread_group(rtn, current) ||/* Í¬Ò»½ø³Ì×é */
+		 (event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_SIGNAL))/* ²ÎÊı²»³åÍ» */
 		return NULL;
 
-	if (((event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE) &&
-	    ((event->sigev_signo <= 0) || (event->sigev_signo > SIGRTMAX)))
+	if (((event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE) &&/* ÓÉĞÅºÅÀ´´¦Àí */
+	    ((event->sigev_signo <= 0) || (event->sigev_signo > SIGRTMAX)))/* ĞÅºÅ±àºÅÒªÕıÈ· */
 		return NULL;
 
 	return task_pid(rtn);
@@ -580,17 +632,28 @@ static void release_posix_timer(struct k_itimer *tmr, int it_id_set)
 	call_rcu(&tmr->it.rcu, k_itimer_rcu_free);
 }
 
+/**
+ * ×ª»»Ê±ÖÓID
+ */
 static struct k_clock *clockid_to_kclock(const clockid_t id)
 {
-	if (id < 0)
+	if (id < 0)/* ²»ÊÇ¾²Ì¬ID */
 		return (id & CLOCKFD_MASK) == CLOCKFD ?
 			&clock_posix_dynamic : &clock_posix_cpu;
 
+	/**
+	 * ¾²Ì¬ID
+	 * Èç¹ûÏàÓ¦µÄ¾²Ì¬IDÃ»ÓĞÊµÏÖ£¬¾Í·µ»ØNULL
+	 */
 	if (id >= MAX_CLOCKS || !posix_clocks[id].clock_getres)
 		return NULL;
+	/* ¾²Ì¬ID */
 	return &posix_clocks[id];
 }
 
+/**
+ * ·Ç¶¯Ì¬Ê±ÖÓµÄ´´½¨
+ */
 static int common_timer_create(struct k_itimer *new_timer)
 {
 	hrtimer_init(&new_timer->it.real.timer, new_timer->it_clock, 0);
@@ -599,54 +662,81 @@ static int common_timer_create(struct k_itimer *new_timer)
 
 /* Create a POSIX.1b interval timer. */
 
+/**
+ * ´´½¨posix¶¨Ê±Æ÷
+ * Ä¿Ç°ºÃÊ¹µÄ½Ó¿Ú£¬Ó¦¸Ã¶àÓÃ
+ */
 SYSCALL_DEFINE3(timer_create, const clockid_t, which_clock,
 		struct sigevent __user *, timer_event_spec,
 		timer_t __user *, created_timer_id)
 {
+	/**
+	 * ¸ù¾İclock ID»ñÈ¡ÄÚºËÖĞµÄstruct k_clock
+	 */
 	struct k_clock *kc = clockid_to_kclock(which_clock);
 	struct k_itimer *new_timer;
 	int error, new_timer_id;
 	sigevent_t event;
 	int it_id_set = IT_ID_NOT_SET;
 
+	/* Å¶»í£¬·Ç·¨id */
 	if (!kc)
 		return -EINVAL;
+	/* ÕâÖÖÀàĞÍµÄÊ±ÖÓ£¬²»ÔÊĞí´´½¨£¬ËãÇò */
 	if (!kc->timer_create)
 		return -EOPNOTSUPP;
 
+	/**
+	 * ·ÖÅäÒ»¸öPOSIX timer
+	 * ËùÓĞ³ÉÔ±±»³õÊ¼»¯Îª0
+	 */
 	new_timer = alloc_posix_timer();
 	if (unlikely(!new_timer))
 		return -EAGAIN;
 
 	spin_lock_init(&new_timer->it_lock);
+	/**
+	 * ÏÈ·ÖÅäÒ»¸öID
+	 * ÔÙ½«¸Ãtimer¼ÓÈëµ½È«¾ÖµÄ¹şÏ£±íÖĞ¡£
+	 */
 	new_timer_id = posix_timer_add(new_timer);
-	if (new_timer_id < 0) {
+	if (new_timer_id < 0) {/* ·ÖÅäÊ§°Ü£¬±³Ê±µÄ¶«Î÷ */
 		error = new_timer_id;
 		goto out;
 	}
 
 	it_id_set = IT_ID_SET;
+	/**
+	 * ³õÊ¼»¯¸Ãposix timer£¬Éè¶¨timer ID£¬clock IDÒÔ¼°overrunµÄÖµ¡£
+	 */
 	new_timer->it_id = (timer_t) new_timer_id;
 	new_timer->it_clock = which_clock;
 	new_timer->it_overrun = -1;
 
-	if (timer_event_spec) {
+	if (timer_event_spec) {/* ÓÃ»§Ö¸¶¨ÁË´¦Àí·½Ê½ */
+		/* ¸´ÖÆÓÃ»§Ì¬²ÎÊı */
 		if (copy_from_user(&event, timer_event_spec, sizeof (event))) {
 			error = -EFAULT;
 			goto out;
 		}
 		rcu_read_lock();
+		/* È·¶¨´¦Àí¶¨Ê±Æ÷µÄÈÎÎñID */
 		new_timer->it_pid = get_pid(good_sigevent(&event));
 		rcu_read_unlock();
-		if (!new_timer->it_pid) {
+		if (!new_timer->it_pid) {/* Èç¹ûidÎª¿Õ£¬ËµÃ÷²ÎÊı¼ì²éÃ»ÓĞÍ¨¹ı */
 			error = -EINVAL;
 			goto out;
 		}
-	} else {
+	} else {/* Ã»ÓĞÖ¸¶¨²ÎÊı£¬ÉèÖÃÄ¬ÈÏÖµ */
 		memset(&event.sigev_value, 0, sizeof(event.sigev_value));
+		/**
+		 * Èç¹ûÓÃ»§¿Õ¼äµÄ³ÌĞòÃ»ÓĞÖ¸¶¨sigevent_tµÄ²ÎÊı
+		 * ÄÇÃ´ÄÚºËµÄÈ±Ê¡ĞĞÎªÊÇ·¢ËÍSIGALRM¸øµ÷ÓÃÏß³ÌËùÊôµÄÏß³Ì×éleader¡£
+		 */
 		event.sigev_notify = SIGEV_SIGNAL;
 		event.sigev_signo = SIGALRM;
 		event.sigev_value.sival_int = new_timer->it_id;
+		/* Ä¬ÈÏÓÉÁìÍ·½ø³ÌÀ´´¦ÀíĞÅºÅ */
 		new_timer->it_pid = get_pid(task_tgid(current));
 	}
 
@@ -654,19 +744,28 @@ SYSCALL_DEFINE3(timer_create, const clockid_t, which_clock,
 	new_timer->sigq->info.si_signo = event.sigev_signo;
 	new_timer->sigq->info.si_value = event.sigev_value;
 	new_timer->sigq->info.si_tid   = new_timer->it_id;
+	/**
+	 * SI_TIMERÓÃÀ´±êÊ¶¸ÃĞÅºÅÊÇÓÉÓÚposix timer¶ø²úÉúµÄ¡£
+	 */
 	new_timer->sigq->info.si_code  = SI_TIMER;
 
+	/* ½«·ÖÅäµÄtimer ID ¿½±´»ØÓÃ»§¿Õ¼ä */
 	if (copy_to_user(created_timer_id,
 			 &new_timer_id, sizeof (new_timer_id))) {
 		error = -EFAULT;
 		goto out;
 	}
 
+	/**
+	 * Ò²¾ÍÊÇ¸ö¶ş´«ÊÖ
+	 * ½«´´½¨ÈÎÎñ½»¸ø¾ßÌåµÄÊ±ÖÓ
+	 */
 	error = kc->timer_create(new_timer);
 	if (error)
 		goto out;
 
 	spin_lock_irq(&current->sighand->siglock);
+	/* ½¨Á¢posix timerºÍµ±Ç°½ø³Ìsignal descriptorµÄ¹ØÏµ */
 	new_timer->it_signal = current->signal;
 	list_add(&new_timer->list, &current->signal->posix_timers);
 	spin_unlock_irq(&current->sighand->siglock);
@@ -732,6 +831,9 @@ static struct k_itimer *__lock_timer(timer_t timer_id, unsigned long *flags)
  * it is the same as a requeue pending timer WRT to what we should
  * report.
  */
+/**
+ * »ñµÃposix¶¨Ê±Æ÷µÄÉèÖÃ
+ */
 static void
 common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 {
@@ -740,15 +842,20 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 
 	memset(cur_setting, 0, sizeof(struct itimerspec));
 
+	/**
+	 * »ñÈ¡¸Ãposix timer¶ÔÓ¦µÄtimer periodÖµ
+	 */
 	iv = timr->it.real.interval;
 
 	/* interval timer ? */
-	if (iv.tv64)
+	if (iv.tv64)/* ÖÜÆÚĞÔ¶¨Ê±Æ÷ */
+		/* interval timerĞè·µ»Øtimer period */
 		cur_setting->it_interval = ktime_to_timespec(iv);
 	else if (!hrtimer_active(timer) &&
-		 (timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE)
-		return;
+		 (timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE)/* one shot */
+		return;/* ·µ»Ø0¾ÍĞĞÁË */
 
+	/* ÏÈÈ¡µÃµ±Ç°Ê±¼äµãµÄÖµ */
 	now = timer->base->get_time();
 
 	/*
@@ -756,13 +863,15 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 	 * timer move the expiry time forward by intervals, so
 	 * expiry is > now.
 	 */
-	if (iv.tv64 && (timr->it_requeue_pending & REQUEUE_PENDING ||
-	    (timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE))
+	if (iv.tv64 && (timr->it_requeue_pending & REQUEUE_PENDING ||/* ÖÜÆÚĞÔ¶¨Ê±Æ÷£¬²¢ÇÒĞÅºÅ±»¹ÒÆğ */
+	    (timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE))/* ÂÖÑ¯·½Ê½µÄ¶¨Ê±Æ÷ */
+	    	/*  Èç¹û³¬Ê±£¬¾ÍÖØÖÃ¶¨Ê±Æ÷²¢Ôö¼Óit_overrun */
 		timr->it_overrun += (unsigned int) hrtimer_forward(timer, now, iv);
 
+	/* ¼ÆËãÊ£ÓàÊ±¼ä */
 	remaining = ktime_sub(hrtimer_get_expires(timer), now);
 	/* Return 0 only, when the timer is expired and not pending */
-	if (remaining.tv64 <= 0) {
+	if (remaining.tv64 <= 0) {/* ÒÑ¾­³¬ÆÚ */
 		/*
 		 * A single shot SIGEV_NONE timer must return 0, when
 		 * it is expired !
@@ -770,10 +879,14 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
 		if ((timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE)
 			cur_setting->it_value.tv_nsec = 1;
 	} else
+		/* ·µ»ØÊ£ÓàÊ±¼äĞÅÏ¢ */
 		cur_setting->it_value = ktime_to_timespec(remaining);
 }
 
 /* Get the time remaining on a POSIX.1b interval timer. */
+/**
+ * »ñÈ¡Ò»¸öposix timerÊ£ÓàÊ±¼ä
+ */
 SYSCALL_DEFINE2(timer_gettime, timer_t, timer_id,
 		struct itimerspec __user *, setting)
 {
@@ -783,18 +896,26 @@ SYSCALL_DEFINE2(timer_gettime, timer_t, timer_id,
 	unsigned long flags;
 	int ret = 0;
 
+	/**
+	 * ¸ù¾İtimer IDÕÒµ½¶ÔÓ¦µÄposix timer
+	 */
 	timr = lock_timer(timer_id, &flags);
 	if (!timr)
 		return -EINVAL;
 
+	/**
+	 * ¸ù¾İclock ID»ñÈ¡ÄÚºËÖĞµÄstruct k_clock
+	 */
 	kc = clockid_to_kclock(timr->it_clock);
 	if (WARN_ON_ONCE(!kc || !kc->timer_get))
 		ret = -EINVAL;
 	else
+		/* µ÷ÓÃ¾ßÌåclockµÄget timerº¯Êı */
 		kc->timer_get(timr, &cur_setting);
 
 	unlock_timer(timr, flags);
 
+	/* ½«½á¹ûcopyµ½ÓÃ»§¿Õ¼ä */
 	if (!ret && copy_to_user(setting, &cur_setting, sizeof (cur_setting)))
 		return -EFAULT;
 
@@ -832,10 +953,13 @@ static int
 common_timer_set(struct k_itimer *timr, int flags,
 		 struct itimerspec *new_setting, struct itimerspec *old_setting)
 {
+	/**
+	 * »ñÈ¡¸Ãposix timer¶ÔÓ¦µÄ¸ß¾«¶Ètimer
+	 */
 	struct hrtimer *timer = &timr->it.real.timer;
 	enum hrtimer_mode mode;
 
-	if (old_setting)
+	if (old_setting)/* »ñÈ¡¾ÉµÄtimerÉè¶¨ */
 		common_timer_get(timr, old_setting);
 
 	/* disable the timer */
@@ -844,17 +968,31 @@ common_timer_set(struct k_itimer *timr, int flags,
 	 * careful here.  If smp we could be in the "fire" routine which will
 	 * be spinning as we hold the lock.  But this is ONLY an SMP issue.
 	 */
+	/**
+	 * Í£µô¸Ã¸ß¾«¶Ètimer
+	 */
 	if (hrtimer_try_to_cancel(timer) < 0)
-		return TIMER_RETRY;
+		return TIMER_RETRY;/* ¾¹È»Í£Ö¹²»µô? */
 
+	/**
+	 * it_requeue_pending×´Ì¬flagÖĞµÄĞÅºÅË½ÓĞÊı¾İ¼ÓÒ»
+	 * Õâ¸öË½ÓĞÊı¾İÊÇ[31:1]£¬Òò´Ë´úÂëÖĞ¼Ó2
+	 * ²¢ÇÒÇå³ıpending flag
+	 */
 	timr->it_requeue_pending = (timr->it_requeue_pending + 2) & 
 		~REQUEUE_PENDING;
+	/* ÉÏ´ÎµÄoverrun countÒª±»Çå³ı */
 	timr->it_overrun_last = 0;
 
 	/* switch off the timer when it_value is zero */
+	/**
+	 * ĞÂÉè¶¨µÄÊ±¼äÖµµÈÓÚ0 
+	 * ËµÃ÷½ö½öÊÇÏëÍ£Ö¹µô¸Ã¶¨Ê±Æ÷
+	 */
 	if (!new_setting->it_value.tv_sec && !new_setting->it_value.tv_nsec)
 		return 0;
 
+	/* ÖØĞÂ³õÊ¼»¯¸ß¾«¶È¶¨Ê±Æ÷ */
 	mode = flags & TIMER_ABSTIME ? HRTIMER_MODE_ABS : HRTIMER_MODE_REL;
 	hrtimer_init(&timr->it.real.timer, timr->it_clock, mode);
 	timr->it.real.timer.function = posix_timer_fn;
@@ -862,22 +1000,36 @@ common_timer_set(struct k_itimer *timr, int flags,
 	hrtimer_set_expires(timer, timespec_to_ktime(new_setting->it_value));
 
 	/* Convert interval */
+	/**
+	 * ÉèÖÃintervalµÄÖµ
+	 * Í¨¹ı¸ÃÖµ¿ÉÒÔÉè¶¨ÖÜÆÚĞÔtimer
+	 * ÓÃ»§¿Õ¼ä´«ÈëµÄ²ÎÊıÊÇtimespec
+	 * Ğè×ª»»³ÉktimeµÄÊ±¼ä¸ñÊ½
+	 */
 	timr->it.real.interval = timespec_to_ktime(new_setting->it_interval);
 
 	/* SIGEV_NONE timers are not queued ! See common_timer_get */
+	/* ¶ÔÓÚÂÖÑ¯ÀàĞÍµÄposix timer£¬ÎÒÃÇ²¢²»»áÕæÕıÆô¶¯¸Ãtimer */
 	if (((timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE)) {
 		/* Setup correct expiry time for relative timers */
-		if (mode == HRTIMER_MODE_REL) {
+		if (mode == HRTIMER_MODE_REL) {/* ·Ç¾ø¶ÔÊ±¼ä */
+			/* ÔÚµ±Ç°Ê±¼äÉÏÃæ¼ÓÉÏÏà¶ÔÊ±¼ä */
 			hrtimer_add_expires(timer, timer->base->get_time());
 		}
 		return 0;
 	}
 
+	/* Æô¶¯¸ß¾«¶Ètimer */
 	hrtimer_start_expires(timer, mode);
 	return 0;
 }
 
 /* Set a POSIX.1b interval timer */
+/**
+ * ÉèÖÃposixÊ±ÖÓµÄÖµ
+ *	flag:	Ïà¶ÔÊ±¼ä»¹ÊÇ¾ø¶ÔÊ±¼ä
+ *	new_setting:	Èç¹ûÖµÎª0£¬ÔòÍ£Ö¹Ê±ÖÓ
+ */
 SYSCALL_DEFINE4(timer_settime, timer_t, timer_id, int, flags,
 		const struct itimerspec __user *, new_setting,
 		struct itimerspec __user *, old_setting)
@@ -941,6 +1093,9 @@ static inline int timer_delete_hook(struct k_itimer *timer)
 }
 
 /* Delete a POSIX.1b interval timer. */
+/**
+ * É¾³ıposix¶¨Ê±Æ÷
+ */
 SYSCALL_DEFINE1(timer_delete, timer_t, timer_id)
 {
 	struct k_itimer *timer;
@@ -1065,6 +1220,9 @@ SYSCALL_DEFINE2(clock_adjtime, const clockid_t, which_clock,
 	return err;
 }
 
+/**
+ * »ñÈ¡Ê±ÖÓ¾«¶È
+ */
 SYSCALL_DEFINE2(clock_getres, const clockid_t, which_clock,
 		struct timespec __user *, tp)
 {

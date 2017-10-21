@@ -60,6 +60,12 @@ EXPORT_SYMBOL(sys_tz);
  * why not move it into the appropriate arch directory (for those
  * architectures that need it).
  */
+/**
+ * time系统调用
+ * 返回当前时间点到linux epoch的秒数
+ * 一般用sys_gettimeofday来实现
+ * 这里为了保持兼容而已
+ */
 SYSCALL_DEFINE1(time, time_t __user *, tloc)
 {
 	time_t i = get_seconds();
@@ -78,7 +84,10 @@ SYSCALL_DEFINE1(time, time_t __user *, tloc)
  * why not move it into the appropriate arch directory (for those
  * architectures that need it).
  */
-
+/**
+ * stime系统调用
+ * 设定当前时间点到linux epoch的秒数
+ */
 SYSCALL_DEFINE1(stime, time_t __user *, tptr)
 {
 	struct timespec tv;

@@ -21,7 +21,13 @@
 #include "tick-internal.h"
 
 /* The registered clock event devices */
+/**
+ * 当前可用的定时器设备
+ */
 static LIST_HEAD(clockevent_devices);
+/**
+ * 由于种种原因，无法进入active list
+ */
 static LIST_HEAD(clockevents_released);
 /* Protection for the above */
 static DEFINE_RAW_SPINLOCK(clockevents_lock);
@@ -277,18 +283,24 @@ static int clockevents_program_min_delta(struct clock_event_device *dev)
  *
  * Returns 0 on success, -ETIME when the retry loop failed.
  */
+/**
+ * 向硬件写入一个最小的时间超时值
+ */
 static int clockevents_program_min_delta(struct clock_event_device *dev)
 {
 	unsigned long long clc;
 	int64_t delta;
 
+	/* 硬件允许的最小的时间点 */
 	delta = dev->min_delta_ns;
+	/* 下一次要触发event的时间点 */
 	dev->next_event = ktime_add_ns(ktime_get(), delta);
 
 	if (clockevent_state_shutdown(dev))
 		return 0;
 
 	dev->retries++;
+	/* 转换成cycles后写入硬件 */
 	clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
 	return dev->set_next_event((unsigned long) clc, dev);
 }
@@ -303,6 +315,10 @@ static int clockevents_program_min_delta(struct clock_event_device *dev)
  *
  * Returns 0 on success, -ETIME when the event is in the past.
  */
+/**
+ * 对定时器设备进行编程
+ * 设置其超时事件
+ */
 int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
 			      bool force)
 {
@@ -310,13 +326,17 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
 	int64_t delta;
 	int rc;
 
-	if (unlikely(expires.tv64 < 0)) {
+	if (unlikely(expires.tv64 < 0)) {/* 参数错误 */
 		WARN_ON_ONCE(1);
 		return -ETIME;
 	}
 
+	/**
+	 * 设定下一次触发clock event的时间
+	 */
 	dev->next_event = expires;
 
+	/* 定时器被关闭了 */
 	if (clockevent_state_shutdown(dev))
 		return 0;
 
@@ -325,17 +345,27 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
 		  clockevent_get_state(dev));
 
 	/* Shortcut for clockevent devices that can deal with ktime. */
+	/* chip driver支持使用ktime的设定 */
 	if (dev->features & CLOCK_EVT_FEAT_KTIME)
+		/* 直接调用set_next_ktime就搞定了 */
 		return dev->set_next_ktime(expires, dev);
 
+	/**
+	 * “正常”的clock event device
+	 * 转换成cycle这样的单位
+	 */
 	delta = ktime_to_ns(ktime_sub(expires, ktime_get()));
-	if (delta <= 0)
+	if (delta <= 0)/* 时间已经过去了 */
+		/* 那就设置一个最小间隔，或者返回错误 */
 		return force ? clockevents_program_min_delta(dev) : -ETIME;
 
+	/* 不能超过硬件支持的最大值 */
 	delta = min(delta, (int64_t) dev->max_delta_ns);
 	delta = max(delta, (int64_t) dev->min_delta_ns);
 
+	/* 将时间转换为CYCLES */
 	clc = ((unsigned long long) delta * dev->mult) >> dev->shift;
+	/* 调用驱动的回调，设置硬件 */
 	rc = dev->set_next_event((unsigned long) clc, dev);
 
 	return (rc && force) ? clockevents_program_min_delta(dev) : rc;
@@ -446,6 +476,9 @@ EXPORT_SYMBOL_GPL(clockevents_unbind_device);
  * clockevents_register_device - register a clock event device
  * @dev:	device to register
  */
+/**
+ * 注册定时器设备
+ */
 void clockevents_register_device(struct clock_event_device *dev)
 {
 	unsigned long flags;
@@ -453,14 +486,20 @@ void clockevents_register_device(struct clock_event_device *dev)
 	/* Initialize state to DETACHED */
 	clockevent_set_state(dev, CLOCK_EVT_STATE_DETACHED);
 
+	/**
+	 * cpumask指明该设备为哪一个CPU工作，如果没有设定
+	 */
 	if (!dev->cpumask) {
+		/* 多核的情况下报个警 */
 		WARN_ON(num_possible_cpus() > 1);
+		/* 设置为本CPU工作 */
 		dev->cpumask = cpumask_of(smp_processor_id());
 	}
 
 	raw_spin_lock_irqsave(&clockevents_lock, flags);
 
 	list_add(&dev->list, &clockevent_devices);
+	/* 通知TICK层，有新设备了 */
 	tick_check_new_device(dev);
 	clockevents_notify_released();
 
@@ -468,10 +507,14 @@ void clockevents_register_device(struct clock_event_device *dev)
 }
 EXPORT_SYMBOL_GPL(clockevents_register_device);
 
+/**
+ * 初始化定时器设备
+ */
 void clockevents_config(struct clock_event_device *dev, u32 freq)
 {
 	u64 sec;
 
+	/* 周期性的，没啥好配置的了 */
 	if (!(dev->features & CLOCK_EVT_FEAT_ONESHOT))
 		return;
 
@@ -480,14 +523,18 @@ void clockevents_config(struct clock_event_device *dev, u32 freq)
 	 * to 10 minutes for hardware which can program more than
 	 * 32bit ticks so we still get reasonable conversion values.
 	 */
+	/* 硬件timer的最大cycles */
 	sec = dev->max_delta_ticks;
+	/* 除以频率就是秒数 */
 	do_div(sec, freq);
+	/* 多么熟悉的代码，与clocksource类似 */
 	if (!sec)
 		sec = 1;
 	else if (sec > 600 && dev->max_delta_ticks > UINT_MAX)
 		sec = 600;
 
 	clockevents_calc_mult_shift(dev, freq, sec);
+	/* 将cycles转换为ns，得到最大和最小的ns */
 	dev->min_delta_ns = cev_delta2ns(dev->min_delta_ticks, dev, false);
 	dev->max_delta_ns = cev_delta2ns(dev->max_delta_ticks, dev, true);
 }
@@ -565,6 +612,9 @@ void clockevents_handle_noop(struct clock_event_device *dev)
  * Called from various tick functions with clockevents_lock held and
  * interrupts disabled.
  */
+/**
+ * 切换定时设备
+ */
 void clockevents_exchange_device(struct clock_event_device *old,
 				 struct clock_event_device *new)
 {
@@ -572,14 +622,18 @@ void clockevents_exchange_device(struct clock_event_device *old,
 	 * Caller releases a clock event device. We queue it into the
 	 * released list and do a notify add later.
 	 */
-	if (old) {
+	if (old) {/* 旧的clock event device要被替换掉 */
 		module_put(old->owner);
+		/* 将其模式设定为CLOCK_EVT_STATE_DETACHED */
 		clockevents_switch_state(old, CLOCK_EVT_STATE_DETACHED);
+		/* 从全局clock event device链表中摘下来 */
 		list_del(&old->list);
+		/* 挂入clockevents_released链表 */
 		list_add(&old->list, &clockevents_released);
 	}
 
 	if (new) {
+		/* 竟然不是CLOCK_EVT_STATE_DETACHED状态? */
 		BUG_ON(!clockevent_state_detached(new));
 		clockevents_shutdown(new);
 	}
@@ -734,13 +788,16 @@ static int __init tick_init_sysfs(void)
 {
 	int cpu;
 
+	/* 遍历各个CPU的clock event device */
 	for_each_possible_cpu(cpu) {
 		struct device *dev = &per_cpu(tick_percpu_dev, cpu);
 		int err;
 
 		dev->id = cpu;
 		dev->bus = &clockevents_subsys;
+		/* 把clock event device注册到系统中 */
 		err = device_register(dev);
+		/* 创建属性文件 */
 		if (!err)
 			err = device_create_file(dev, &dev_attr_current_device);
 		if (!err)
@@ -748,14 +805,20 @@ static int __init tick_init_sysfs(void)
 		if (err)
 			return err;
 	}
+	/* 别忘了还有广播设备 */
 	return tick_broadcast_init_sysfs();
 }
 
+/**
+ * 定时器子系统sysfs接口初始化
+ */
 static int __init clockevents_init_sysfs(void)
 {
+	/* 注册clock event这种bus type */
 	int err = subsys_system_register(&clockevents_subsys, NULL);
 
 	if (!err)
+		/* tick子系统的sysfs初始化 */
 		err = tick_init_sysfs();
 	return err;
 }

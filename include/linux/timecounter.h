@@ -36,9 +36,17 @@
  * @mult:		cycle to nanosecond multiplier
  * @shift:		cycle to nanosecond divisor (power of two)
  */
+/**
+ * 时间戳描述符
+ */
 struct cyclecounter {
+	/**
+	 * 获取当前的counter value，单位是cycle
+	 */
 	cycle_t (*read)(const struct cyclecounter *cc);
+	/* 有效位 */
 	cycle_t mask;
+	/* 转换成ns需要的乘积因子和右移因子 */
 	u32 mult;
 	u32 shift;
 };
@@ -61,9 +69,21 @@ struct cyclecounter {
  * @mask:		bit mask for maintaining the 'frac' field
  * @frac:		accumulated fractional nanoseconds
  */
+/**
+ * 纳秒表
+ */
 struct timecounter {
+	/**
+	 * 所使用的cycles表
+	 */
 	const struct cyclecounter *cc;
+	/**
+	 * 上次访问时的cycles
+	 */
 	cycle_t cycle_last;
+	/**
+	 * 当前的纳秒值
+	 */
 	u64 nsec;
 	u64 mask;
 	u64 frac;

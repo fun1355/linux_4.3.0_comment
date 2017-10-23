@@ -28,11 +28,27 @@
  * timer stops in C3 state.
  */
 
+/**
+ * 进行tick广播的设备
+ */
 static struct tick_device tick_broadcast_device;
+/**
+ * 在周期性TICK模式下
+ * 哪些CPU可能需要TICK广播
+ */
 static cpumask_var_t tick_broadcast_mask;
+/**
+ * 在周期性TICK模式下
+ * 哪些CPU可能进入了IDLE
+ */
 static cpumask_var_t tick_broadcast_on;
 static cpumask_var_t tmpmask;
 static DEFINE_RAW_SPINLOCK(tick_broadcast_lock);
+/**
+ * 是否强制使用tick广播，而不是用本地时钟
+ * 用于x86
+ * 参见http://lwn.net/Articles/286432/
+ */
 static int tick_broadcast_forced;
 
 #ifdef CONFIG_TICK_ONESHOT
@@ -71,35 +87,54 @@ static void tick_broadcast_start_periodic(struct clock_event_device *bc)
 static bool tick_check_broadcast_device(struct clock_event_device *curdev,
 					struct clock_event_device *newdev)
 {
-	if ((newdev->features & CLOCK_EVT_FEAT_DUMMY) ||
-	    (newdev->features & CLOCK_EVT_FEAT_PERCPU) ||
-	    (newdev->features & CLOCK_EVT_FEAT_C3STOP))
+	if ((newdev->features & CLOCK_EVT_FEAT_DUMMY) ||/* 这种设备当然不行 */
+	    (newdev->features & CLOCK_EVT_FEAT_PERCPU) ||/* 每CPU设备也不行 */
+	    (newdev->features & CLOCK_EVT_FEAT_C3STOP))/* 本来就是为了解决C3STOP的 */
 		return false;
 
+	/* 比原来的还不如 */
 	if (tick_broadcast_device.mode == TICKDEV_MODE_ONESHOT &&
 	    !(newdev->features & CLOCK_EVT_FEAT_ONESHOT))
 		return false;
 
+	/* 比较精度，如果精度不行，也不要 */
 	return !curdev || newdev->rating > curdev->rating;
 }
 
 /*
  * Conditionally install/replace broadcast device
  */
+/**
+ * 安装/替换系统中broadcast tick device
+ */
 void tick_install_broadcast_device(struct clock_event_device *dev)
 {
+	/* 获取当前的broadcast tick device */
 	struct clock_event_device *cur = tick_broadcast_device.evtdev;
 
+	/* 时钟设备是否有能力作为广播设备 */
 	if (!tick_check_broadcast_device(cur, dev))
 		return;
 
+	/* 对模块引用 */
 	if (!try_module_get(dev->owner))
 		return;
 
+	/**
+	 * 用新的clock event device来替换旧的
+	 * 因此需要将旧的clock event device（如果存在的话）从active 队列中摘除
+	 * 并设定CLOCK_EVT_MODE_UNUSED状态
+	 * 挂入released clockevent队列。
+	 * 对于新的clockevent device，需要设定为CLOCK_EVT_MODE_SHUTDOWN状态。
+	 */
 	clockevents_exchange_device(cur, dev);
 	if (cur)
 		cur->event_handler = clockevents_handle_noop;
 	tick_broadcast_device.evtdev = dev;
+	/**
+	 * 只要有一个需要TICK广播
+	 * 那么我们就要启动broadcast tick device的运作，使之进入周期性tick的mode。
+	 */
 	if (!cpumask_empty(tick_broadcast_mask))
 		tick_broadcast_start_periodic(dev);
 	/*
@@ -110,7 +145,14 @@ void tick_install_broadcast_device(struct clock_event_device *dev)
 	 * notification the systems stays stuck in periodic mode
 	 * forever.
 	 */
+	/**
+	 * broadcast tick设备的clock event device具备one shot能力
+	 */
 	if (dev->features & CLOCK_EVT_FEAT_ONESHOT)
+		/**
+		 * 异步通知到各个CPU
+		 * 看是否有机会让per cpu tick device也切换到one shot的状态
+		 */
 		tick_clock_notify();
 }
 
@@ -155,6 +197,9 @@ static void tick_device_setup_broadcast_func(struct clock_event_device *dev)
  * Check, if the device is disfunctional and a place holder, which
  * needs to be handled by the broadcast device.
  */
+/**
+ * 检查当前per cpu tick device的HW timer的特性并确定是否要启用broadcast tick设备
+ */
 int tick_device_uses_broadcast(struct clock_event_device *dev, int cpu)
 {
 	struct clock_event_device *bc = tick_broadcast_device.evtdev;
@@ -169,10 +214,17 @@ int tick_device_uses_broadcast(struct clock_event_device *dev, int cpu)
 	 * operated from the broadcast device and is a placeholder for
 	 * the cpu local device.
 	 */
+	 /**
+	  * 如果有CLOCK_EVT_FEAT_DUMMY标志
+	  */
 	if (!tick_device_is_functional(dev)) {
+		/* 工作于周期性模式 */
 		dev->event_handler = tick_handle_periodic;
+		/* 由广播设备生成时钟 */
 		tick_device_setup_broadcast_func(dev);
+		/* 把自己加入到广播接收方 */
 		cpumask_set_cpu(cpu, tick_broadcast_mask);
+		/* 使广播设备开始工作 */
 		if (tick_broadcast_device.mode == TICKDEV_MODE_PERIODIC)
 			tick_broadcast_start_periodic(bc);
 		else
@@ -183,9 +235,12 @@ int tick_device_uses_broadcast(struct clock_event_device *dev, int cpu)
 		 * Clear the broadcast bit for this cpu if the
 		 * device is not power state affected.
 		 */
+		/* 本地时钟可以搞定一切 */
 		if (!(dev->features & CLOCK_EVT_FEAT_C3STOP))
+			/* 把当前CPU从掩码中清除，表示本CPU不需要接收广播 */
 			cpumask_clear_cpu(cpu, tick_broadcast_mask);
 		else
+			/* 否则 设定发送广播的函数为tick_broadcast */
 			tick_device_setup_broadcast_func(dev);
 
 		/*
@@ -265,9 +320,13 @@ static bool tick_do_broadcast(struct cpumask *mask)
 	/*
 	 * Check, if the current cpu is in the mask
 	 */
+	/**
+	 * 是否本cpu也需要broadcast tick 设备的服务
+	 */
 	if (cpumask_test_cpu(cpu, mask)) {
 		struct clock_event_device *bc = tick_broadcast_device.evtdev;
 
+		/* 本CPU的事件处理由上层调用者处理 */
 		cpumask_clear_cpu(cpu, mask);
 		/*
 		 * We only run the local handler, if the broadcast
@@ -281,19 +340,22 @@ static bool tick_do_broadcast(struct cpumask *mask)
 		 *         local_handler()
 		 *	     expire_hrtimers()
 		 */
+		/* 本CPU是高精度时钟，那么不用在这里调用TICK回调 */
 		local = !(bc->features & CLOCK_EVT_FEAT_HRTIMER);
 	}
 
-	if (!cpumask_empty(mask)) {
+	if (!cpumask_empty(mask)) {/* 除了本CPU，还有其他CPU需要广播 */
 		/*
 		 * It might be necessary to actually check whether the devices
 		 * have different broadcast functions. For now, just use the
 		 * one of the first device. This works as long as we have this
 		 * misfeature only on x86 (lapic)
 		 */
+		/* 那就真的向其他CPU广播TICK了 */
 		td = &per_cpu(tick_cpu_device, cpumask_first(mask));
 		td->evtdev->broadcast(mask);
 	}
+	/* 如果返回true，则上层调用本CPU的事件回调 */
 	return local;
 }
 
@@ -303,12 +365,20 @@ static bool tick_do_broadcast(struct cpumask *mask)
  */
 static bool tick_do_periodic_broadcast(void)
 {
+	/**
+	 * cpu_online_mask记录了on line的cpu
+	 * tick_broadcast_mask记录了申请broad cast服务的cpu
+	 * 因此只需要处理那些CPU处于online状态并且申请了broad cast服务的cpu
+	 */
 	cpumask_and(tmpmask, cpu_online_mask, tick_broadcast_mask);
 	return tick_do_broadcast(tmpmask);
 }
 
 /*
  * Event handler for periodic broadcast ticks
+ */
+/**
+ * broadcast device的事件处理函数
  */
 static void tick_handle_periodic_broadcast(struct clock_event_device *dev)
 {
@@ -323,9 +393,13 @@ static void tick_handle_periodic_broadcast(struct clock_event_device *dev)
 		return;
 	}
 
+	/**
+	 * 向其他核广播TICK事件
+	 */
 	bc_local = tick_do_periodic_broadcast();
 
-	if (clockevent_state_oneshot(dev)) {
+	if (clockevent_state_oneshot(dev)) {/* one shot模式 */
+		/* 设置下次时钟触发时间 */
 		ktime_t next = ktime_add(dev->next_event, tick_period);
 
 		clockevents_program_event(dev, next, true);
@@ -336,6 +410,10 @@ static void tick_handle_periodic_broadcast(struct clock_event_device *dev)
 	 * We run the handler of the local cpu after dropping
 	 * tick_broadcast_lock because the handler might deadlock when
 	 * trying to switch to oneshot mode.
+	 */
+	/**
+	 * 如果本CPU也需要处理tick回调
+	 * 则调用本地TICK处理函数
 	 */
 	if (bc_local)
 		td->evtdev->event_handler(td->evtdev);

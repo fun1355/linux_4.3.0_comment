@@ -692,6 +692,7 @@ static void hrtimer_switch_to_hres(void)
 {
 	struct hrtimer_cpu_base *base = this_cpu_ptr(&hrtimer_bases);
 
+	/* 先切时钟*/
 	if (tick_init_highres()) {
 		printk(KERN_WARNING "Could not switch to high resolution "
 				    "mode on CPU %d\n", base->cpu);
@@ -829,6 +830,9 @@ void unlock_hrtimer_base(const struct hrtimer *timer, unsigned long *flags)
  *
  * Note: This only updates the timer expiry value and does not requeue
  * the timer.
+ */
+/**
+ * 将高精度定时器挂回红黑树
  */
 u64 hrtimer_forward(struct hrtimer *timer, ktime_t now, ktime_t interval)
 {
@@ -1301,6 +1305,9 @@ static void __hrtimer_run_queues(struct hrtimer_cpu_base *cpu_base, ktime_t now)
  * High resolution timer interrupt
  * Called with interrupts disabled
  */
+/**
+ * 高精度定时器的中断处理函数
+ */
 void hrtimer_interrupt(struct clock_event_device *dev)
 {
 	struct hrtimer_cpu_base *cpu_base = this_cpu_ptr(&hrtimer_bases);
@@ -1425,7 +1432,11 @@ void hrtimer_run_queues(void)
 	 * there only sets the check bit in the tick_oneshot code,
 	 * otherwise we might deadlock vs. xtime_lock.
 	 */
+	/**
+	 * 高精度时钟已经就绪
+	 */
 	if (tick_check_oneshot_change(!hrtimer_is_hres_enabled())) {
+		/* 那就切过去了*/
 		hrtimer_switch_to_hres();
 		return;
 	}

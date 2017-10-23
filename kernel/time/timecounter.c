@@ -18,6 +18,9 @@
 #include <linux/export.h>
 #include <linux/timecounter.h>
 
+/**
+ * 初始化一个纳秒表
+ */
 void timecounter_init(struct timecounter *tc,
 		      const struct cyclecounter *cc,
 		      u64 start_tstamp)
@@ -62,6 +65,9 @@ static u64 timecounter_read_delta(struct timecounter *tc)
 	return ns_offset;
 }
 
+/**
+ * 
+ */
 u64 timecounter_read(struct timecounter *tc)
 {
 	u64 nsec;

@@ -42,8 +42,18 @@ enum clock_event_state {
 /*
  * Clock event features
  */
+/**
+ * 具备产生周期性event的能力
+ */
 # define CLOCK_EVT_FEAT_PERIODIC	0x000001
+/**
+ * 具备产生oneshot类型event的能力
+ */
 # define CLOCK_EVT_FEAT_ONESHOT		0x000002
+/**
+ * 功能强大的硬件
+ * 竟然支持以纳秒为单位设置超时周期
+ */
 # define CLOCK_EVT_FEAT_KTIME		0x000004
 
 /*
@@ -52,7 +62,14 @@ enum clock_event_state {
  * - Clockevent source stops in C3 State and needs broadcast support.
  * - Local APIC timer is used as a dummy device.
  */
+/**
+ * CPU进入C3睡眠状态时，该时钟会失效
+ */
 # define CLOCK_EVT_FEAT_C3STOP		0x000008
+/**
+ * 时钟设备只是一个摆设
+ * apic local timer有这个标志
+ */
 # define CLOCK_EVT_FEAT_DUMMY		0x000010
 
 /*
@@ -63,6 +80,9 @@ enum clock_event_state {
 
 /*
  * Clockevent device is based on a hrtimer for broadcast
+ */
+/**
+ * 基于高精度时钟来实现
  */
 # define CLOCK_EVT_FEAT_HRTIMER		0x000080
 
@@ -96,19 +116,40 @@ enum clock_event_state {
  * @list:		list head for the management code
  * @owner:		module reference
  */
+/**
+ * 定时器设备描述符
+ */
 struct clock_event_device {
+	/**
+	 * 时钟的定时中断处理函数
+	 * 如tick_handle_periodic
+	 */
 	void			(*event_handler)(struct clock_event_device *);
+	/** 
+	 * 控制下一次event产生的时间点
+	 * set_next_event以cycles为单位
+	 * set_next_ktime以ktime(纳秒)为单位
+	 */
 	int			(*set_next_event)(unsigned long evt, struct clock_event_device *);
 	int			(*set_next_ktime)(ktime_t expires, struct clock_event_device *);
+	/**
+	 * 下一次触发clock event的时间
+	 */
 	ktime_t			next_event;
 	u64			max_delta_ns;
 	u64			min_delta_ns;
+	/* 类似于clocksource */
 	u32			mult;
 	u32			shift;
 	enum clock_event_state	state_use_accessors;
+	/**
+	 * 底层硬件的属性
+	 * 如CLOCK_EVT_FEAT_PERIODIC
+	 */
 	unsigned int		features;
 	unsigned long		retries;
 
+	/* 设置为不同的工作状态 */
 	int			(*set_state_periodic)(struct clock_event_device *);
 	int			(*set_state_oneshot)(struct clock_event_device *);
 	int			(*set_state_oneshot_stopped)(struct clock_event_device *);
@@ -118,13 +159,22 @@ struct clock_event_device {
 	void			(*broadcast)(const struct cpumask *mask);
 	void			(*suspend)(struct clock_event_device *);
 	void			(*resume)(struct clock_event_device *);
+	/**
+	 * 硬件支持的最大cycles值
+	 */
 	unsigned long		min_delta_ticks;
 	unsigned long		max_delta_ticks;
 
 	const char		*name;
+	/* 类似于clocksource */
 	int			rating;
+	/* 使用的IRQ number */
 	int			irq;
+	/* 该clock event device附着在哪一个CPU core上 */
 	int			bound_on;
+	/**
+	 * 为哪些CPU服务
+	 */
 	const struct cpumask	*cpumask;
 	struct list_head	list;
 	struct module		*owner;

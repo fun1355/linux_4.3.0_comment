@@ -329,6 +329,9 @@ static inline void timerfd_clock_was_set(void) { }
 #endif
 extern void hrtimers_resume(void);
 
+/**
+ * 每CPU的Tick设备
+ */
 DECLARE_PER_CPU(struct tick_device, tick_cpu_device);
 
 

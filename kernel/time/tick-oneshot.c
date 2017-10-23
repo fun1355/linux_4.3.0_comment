@@ -24,6 +24,9 @@
 /**
  * tick_program_event
  */
+/**
+ * 对高精度时钟进行编程，触发下一次中断
+ */
 int tick_program_event(ktime_t expires, int force)
 {
 	struct clock_event_device *dev = __this_cpu_read(tick_cpu_device.evtdev);
@@ -78,9 +81,10 @@ int tick_switch_to_oneshot(void (*handler)(struct clock_event_device *))
 	struct tick_device *td = this_cpu_ptr(&tick_cpu_device);
 	struct clock_event_device *dev = td->evtdev;
 
-	if (!dev || !(dev->features & CLOCK_EVT_FEAT_ONESHOT) ||
-		    !tick_device_is_functional(dev)) {
+	if (!dev || !(dev->features & CLOCK_EVT_FEAT_ONESHOT) ||/* 不支持one shot */
+		    !tick_device_is_functional(dev)) {/* 设备是dummy */
 
+		/* 那还切个屁，打印警告后退出吧 */
 		printk(KERN_INFO "Clockevents: "
 		       "could not switch to one-shot mode:");
 		if (!dev) {
@@ -95,9 +99,11 @@ int tick_switch_to_oneshot(void (*handler)(struct clock_event_device *))
 		return -EINVAL;
 	}
 
+	/* 先把时钟切过来 */
 	td->mode = TICKDEV_MODE_ONESHOT;
 	dev->event_handler = handler;
 	clockevents_switch_state(dev, CLOCK_EVT_STATE_ONESHOT);
+	/* 通知其他核，将TICK也切到one shot模式 */
 	tick_broadcast_switch_to_oneshot();
 	return 0;
 }

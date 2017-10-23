@@ -4,12 +4,18 @@
 #include <linux/hrtimer.h>
 
 enum tick_device_mode {
+	/* 周期性模式 */
 	TICKDEV_MODE_PERIODIC,
+	/* one shot模式 */
 	TICKDEV_MODE_ONESHOT,
 };
 
+/**
+ * Tick设备描述符
+ */
 struct tick_device {
 	struct clock_event_device *evtdev;
+	/* 工作模式，如TICKDEV_MODE_PERIODIC */
 	enum tick_device_mode mode;
 };
 

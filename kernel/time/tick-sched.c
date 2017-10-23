@@ -826,6 +826,9 @@ static void __tick_nohz_idle_enter(struct tick_sched *ts)
  *  to sleep.
  * - rcu_idle_exit() before the first use of RCU after the CPU is woken up.
  */
+/**
+ * 在进入idle前，停止掉周期性sched timer Tick时钟
+ */
 void tick_nohz_idle_enter(void)
 {
 	struct tick_sched *ts;
@@ -934,6 +937,9 @@ void tick_nohz_idle_exit(void)
 
 /*
  * The nohz low res interrupt handler
+ */
+/**
+ * No-HZ低精度中断处理
  */
 static void tick_nohz_handler(struct clock_event_device *dev)
 {
@@ -1062,6 +1068,9 @@ void tick_irq_enter(void)
  * We rearm the timer until we get disabled by the idle code.
  * Called with interrupts disabled.
  */
+/**
+ * 高精度时钟模式下，由此定时器模拟TICK
+ */
 static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 {
 	struct tick_sched *ts =
@@ -1170,6 +1179,10 @@ void tick_oneshot_notify(void)
  * softirq) allow_nohz signals, that we can switch into low-res nohz
  * mode, because high resolution timers are disabled (either compile
  * or runtime). Called with interrupts disabled.
+ */
+/**
+ * 在时钟软中断中调用
+ * 周期性的检测是否可以切换到oneshot mode
  */
 int tick_check_oneshot_change(int allow_nohz)
 {

@@ -32,7 +32,13 @@ DEFINE_PER_CPU(struct tick_device, tick_cpu_device);
 /*
  * Tick next event: keeps track of the tick time
  */
+/**
+ * 周期性TICK的下一个周期
+ */
 ktime_t tick_next_period;
+/**
+ * 周期性TICK的周期间隔
+ */
 ktime_t tick_period;
 
 /*
@@ -49,6 +55,10 @@ ktime_t tick_period;
  *    at it will take over and keep the time keeping alive.  The handover
  *    procedure also covers cpu hotplug.
  */
+/**
+ * 哪一个CPU上的 tick设备作为全局tick
+ * 更新jiffies，更新系统的wall time，更新系统的平均负载
+ */
 int tick_do_timer_cpu __read_mostly = TICK_DO_TIMER_BOOT;
 
 /*
@@ -62,14 +72,20 @@ struct tick_device *tick_get_device(int cpu)
 /**
  * tick_is_oneshot_available - check for a oneshot capable event device
  */
+/**
+ * 检查本地TICK设备是否适合进入one shot模式
+ */
 int tick_is_oneshot_available(void)
 {
 	struct clock_event_device *dev = __this_cpu_read(tick_cpu_device.evtdev);
 
+	/* 设备是否支持one shot模式 */
 	if (!dev || !(dev->features & CLOCK_EVT_FEAT_ONESHOT))
 		return 0;
+	/* C3时，设备也不会停止，这个太好了 */
 	if (!(dev->features & CLOCK_EVT_FEAT_C3STOP))
 		return 1;
+	/* 如果C3时会停止，那就得看广播设备是否可用 */
 	return tick_broadcast_oneshot_available();
 }
 
@@ -103,11 +119,15 @@ static void tick_periodic(int cpu)
 /*
  * Event handler for periodic ticks
  */
+/**
+ * 周期性时钟中断回调
+ */
 void tick_handle_periodic(struct clock_event_device *dev)
 {
 	int cpu = smp_processor_id();
 	ktime_t next = dev->next_event;
 
+	/* 周期性tick中要处理的内容 */
 	tick_periodic(cpu);
 
 #if defined(CONFIG_HIGH_RES_TIMERS) || defined(CONFIG_NO_HZ_COMMON)
@@ -120,6 +140,10 @@ void tick_handle_periodic(struct clock_event_device *dev)
 		return;
 #endif
 
+	/**
+	 * 不是one shot模式
+	 * 就不必对one shot进行编程了
+	 */
 	if (!clockevent_state_oneshot(dev))
 		return;
 	for (;;) {
@@ -127,8 +151,10 @@ void tick_handle_periodic(struct clock_event_device *dev)
 		 * Setup the next period for devices, which do not have
 		 * periodic mode:
 		 */
+		/* 计算下一个周期性tick触发的时间 */
 		next = ktime_add(next, tick_period);
 
+		/* 设定下一个clock event触发的时间 */
 		if (!clockevents_program_event(dev, next, false))
 			return;
 		/*
@@ -140,7 +166,9 @@ void tick_handle_periodic(struct clock_event_device *dev)
 		 * which then will increment time, possibly causing
 		 * the loop to trigger again and again.
 		 */
+		/* 竟然设置失败了，应该是下一个中断又到期了 */
 		if (timekeeping_valid_for_hres())
+			/* 补充执行一下，然后设置再下一个定时器 */
 			tick_periodic(cpu);
 	}
 }
@@ -148,16 +176,24 @@ void tick_handle_periodic(struct clock_event_device *dev)
 /*
  * Setup the device for a periodic tick
  */
+/**
+ * 将时钟设备设置为周期性模式
+ */
 void tick_setup_periodic(struct clock_event_device *dev, int broadcast)
 {
+	/**
+	 * 对于tick device ，设定event handler为tick_handle_periodic
+	 * 对于broadcast tick device，event handler被设定为tick_handle_periodic_broadcast
+	 */
 	tick_set_periodic_handler(dev, broadcast);
 
 	/* Broadcast setup ? */
 	if (!tick_device_is_functional(dev))
 		return;
 
-	if ((dev->features & CLOCK_EVT_FEAT_PERIODIC) &&
-	    !tick_broadcast_oneshot_active()) {
+	if ((dev->features & CLOCK_EVT_FEAT_PERIODIC) && /* 设备支持周期性模式 */
+	    !tick_broadcast_oneshot_active()) {/* 并且目前one shot还不可用 */
+	    	/* 直接设定为周期性模式即可 */
 		clockevents_switch_state(dev, CLOCK_EVT_STATE_PERIODIC);
 	} else {
 		unsigned long seq;
@@ -165,14 +201,22 @@ void tick_setup_periodic(struct clock_event_device *dev, int broadcast)
 
 		do {
 			seq = read_seqbegin(&jiffies_lock);
+			/**
+			 * 获取下一个周期性tick触发的时间
+			 */
 			next = tick_next_period;
 		} while (read_seqretry(&jiffies_lock, seq));
 
+		/**
+		 * 模式设定
+		 */
 		clockevents_switch_state(dev, CLOCK_EVT_STATE_ONESHOT);
 
 		for (;;) {
+			/* 事件编程 */
 			if (!clockevents_program_event(dev, next, false))
 				return;
+			/* 计算下一个周期性tick触发的时间 */
 			next = ktime_add(next, tick_period);
 		}
 	}
@@ -196,11 +240,19 @@ static void tick_setup_device(struct tick_device *td,
 		 * If no cpu took the do_timer update, assign it to
 		 * this cpu:
 		 */
+		/**
+		 * 前系统中没有global tick设备
+		 */
 		if (tick_do_timer_cpu == TICK_DO_TIMER_BOOT) {
+			/**
+			 * 那么可以考虑选择该tick设备作为global设备
+			 * 进行系统时间和jiffies的更新
+			 */
 			if (!tick_nohz_full_cpu(cpu))
 				tick_do_timer_cpu = cpu;
 			else
 				tick_do_timer_cpu = TICK_DO_TIMER_NONE;
+			/* 设置这两个变量，全局tick可以开工了 */
 			tick_next_period = ktime_get();
 			tick_period = ktime_set(0, NSEC_PER_SEC / HZ);
 		}
@@ -208,20 +260,30 @@ static void tick_setup_device(struct tick_device *td,
 		/*
 		 * Startup in periodic mode first.
 		 */
+		/**
+		 * 最初都设置为周期性的
+		 */
 		td->mode = TICKDEV_MODE_PERIODIC;
 	} else {
+		/**
+		 * 旧的clockevent设备就要退居二线了
+		 * 将其handler修改为clockevents_handle_noop
+		 */
 		handler = td->evtdev->event_handler;
 		next_event = td->evtdev->next_event;
 		td->evtdev->event_handler = clockevents_handle_noop;
 	}
 
+	/* 终于修成正果了 */
 	td->evtdev = newdev;
 
 	/*
 	 * When the device is not per cpu, pin the interrupt to the
 	 * current cpu:
 	 */
+	/* 当然还没有在该CPU上产生中断 */
 	if (!cpumask_equal(newdev->cpumask, cpumask))
+		/* 让中断亲和到本CPU */
 		irq_set_affinity(newdev->irq, cpumask);
 
 	/*
@@ -231,12 +293,23 @@ static void tick_setup_device(struct tick_device *td,
 	 * way. This function also returns !=0 when we keep the
 	 * current active broadcast state for this CPU.
 	 */
+	/* 广播设备，不能修改它的模式 */
 	if (tick_device_uses_broadcast(newdev, cpu))
 		return;
 
 	if (td->mode == TICKDEV_MODE_PERIODIC)
+		/**
+		 * 如果底层的clock event device支持periodic模式
+		 * 那么直接调用clockevents_set_mode设定模式就OK了
+		 */
 		tick_setup_periodic(newdev, 0);
 	else
+		/**
+		 * 如果底层的clock event device不支持periodic模式
+		 * 而tick device目前是周期性tick mode
+		 * 那么要稍微复杂一些
+		 * 需要用clock event device的one shot模式来实现周期性tick
+		 */
 		tick_setup_oneshot(newdev, handler, next_event);
 }
 
@@ -304,6 +377,10 @@ bool tick_check_replacement(struct clock_event_device *curdev,
  * Check, if the new registered device should be used. Called with
  * clockevents_lock held and interrupts disabled.
  */
+/**
+ * 在注册时钟设备的时候，调用此函数
+ * 检查是否将其初始化为Tick设备
+ */
 void tick_check_new_device(struct clock_event_device *newdev)
 {
 	struct clock_event_device *curdev;
@@ -311,17 +388,28 @@ void tick_check_new_device(struct clock_event_device *newdev)
 	int cpu;
 
 	cpu = smp_processor_id();
+	/* 获取当前cpu的tick device */
 	td = &per_cpu(tick_cpu_device, cpu);
 	curdev = td->evtdev;
 
 	/* cpu local device ? */
+	/**
+	 * 这是本CPU可用的tick设备吗
+	 * 检查其CPU掩码
+	 * 以及中断亲和性
+	 */
 	if (!tick_check_percpu(curdev, newdev, cpu))
+		/* 如果不是，那么看能不能做为广播设备 */
 		goto out_bc;
 
 	/* Preference decision */
+	/**
+	 * 看看是不是比目前的tick设备更好
+	 */
 	if (!tick_check_preferred(curdev, newdev))
 		goto out_bc;
 
+	/* 增加模块引用计数 */
 	if (!try_module_get(newdev->owner))
 		return;
 
@@ -330,12 +418,20 @@ void tick_check_new_device(struct clock_event_device *newdev)
 	 * device. If the current device is the broadcast device, do
 	 * not give it back to the clockevents layer !
 	 */
+	/**
+	 * 当前Tick设备是广播设备
+	 */
 	if (tick_is_broadcast_device(curdev)) {
+		/* 把广播设备关闭 */
 		clockevents_shutdown(curdev);
+		/* 防止clockevents_exchange_device将其从链表中摘除 */
 		curdev = NULL;
 	}
+	/* 通知clockevent layer */
 	clockevents_exchange_device(curdev, newdev);
+	/* 启动新设备 */
 	tick_setup_device(td, newdev, cpu, cpumask_of(cpu));
+	/* 设备支持one shot */
 	if (newdev->features & CLOCK_EVT_FEAT_ONESHOT)
 		tick_oneshot_notify();
 	return;

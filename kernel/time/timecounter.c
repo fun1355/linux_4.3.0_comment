@@ -66,7 +66,7 @@ static u64 timecounter_read_delta(struct timecounter *tc)
 }
 
 /**
- * 
+ * 获取当前的时间值（基于start_tstamp的）
  */
 u64 timecounter_read(struct timecounter *tc)
 {

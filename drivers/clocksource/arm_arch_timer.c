@@ -53,6 +53,9 @@ struct arch_timer {
 
 #define to_arch_timer(e) container_of(e, struct arch_timer, evt)
 
+/**
+ * system counter的输入频率
+ */
 static u32 arch_timer_rate;
 
 enum ppi_nr {
@@ -340,8 +343,12 @@ static void arch_counter_set_user_access(void)
 
 static int arch_timer_setup(struct clock_event_device *clk)
 {
+	/**
+	 * 初始化clock event device并注册到系统
+	 */
 	__arch_timer_setup(ARCH_CP15_TIMER, clk);
 
+	/* 打开定时器中断 */
 	if (arch_timer_use_virtual)
 		enable_percpu_irq(arch_timer_ppi[VIRT_PPI], 0);
 	else {
@@ -350,8 +357,9 @@ static int arch_timer_setup(struct clock_event_device *clk)
 			enable_percpu_irq(arch_timer_ppi[PHYS_NONSECURE_PPI], 0);
 	}
 
+	/* 禁止用户态访问counter寄存器 */
 	arch_counter_set_user_access();
-	if (IS_ENABLED(CONFIG_ARM_ARCH_TIMER_EVTSTREAM))
+	if (IS_ENABLED(CONFIG_ARM_ARCH_TIMER_EVTSTREAM))/* 默认不打开这个东东 */
 		arch_timer_configure_evtstream();
 
 	return 0;
@@ -361,6 +369,7 @@ static void
 arch_timer_detect_rate(void __iomem *cntbase, struct device_node *np)
 {
 	/* Who has more than one independent system counter? */
+	/* 有人已经初始化了??? */
 	if (arch_timer_rate)
 		return;
 
@@ -369,10 +378,19 @@ arch_timer_detect_rate(void __iomem *cntbase, struct device_node *np)
 	 * if ACPI is enabled, get the frequency from CNTFRQ ONLY.
 	 */
 	if (!acpi_disabled ||
+		/* DT里面强制指定了 */
 	    of_property_read_u32(np, "clock-frequency", &arch_timer_rate)) {
-		if (cntbase)
+		if (cntbase)/* memory mapped的方式 */
+			/**
+			 * 访问CNTFRQ寄存器
+			 * 直接使用readl_relaxed函数
+			 */
 			arch_timer_rate = readl_relaxed(cntbase + CNTFRQ);
-		else
+		else/* CP15 timer */
+			/**
+			 * 通过协处理器来获取该值
+			 * 调用arch_timer_get_cntfrq函数
+			 */
 			arch_timer_rate = arch_timer_get_cntfrq();
 	}
 
@@ -434,9 +452,14 @@ static cycle_t arch_counter_read_cc(const struct cyclecounter *cc)
 	return arch_timer_read_counter();
 }
 
+/**
+ * Arm通用ClockSource设备
+ */
 static struct clocksource clocksource_counter = {
 	.name	= "arch_sys_counter",
+	/* 很高的精度，一般就选择它了 */
 	.rating	= 400,
+	/* 读cycles的回调 */
 	.read	= arch_counter_read,
 	.mask	= CLOCKSOURCE_MASK(56),
 	.flags	= CLOCK_SOURCE_IS_CONTINUOUS | CLOCK_SOURCE_SUSPEND_NONSTOP,
@@ -454,11 +477,19 @@ struct timecounter *arch_timer_get_timecounter(void)
 	return &timecounter;
 }
 
+/**
+ * 向时间子系统注册设备
+ */
 static void __init arch_counter_register(unsigned type)
 {
 	u64 start_count;
 
 	/* Register the CP15 based counter if we have one */
+	/**
+	 * ARM generic timer的clock source，其read函数被设定成arch_counter_read
+	 * 该函数会调用arch_timer_read_counter 函数
+	 * 而这个函数指针会在初始化的时候根据timer的类型进行设定。
+	 */
 	if (type & ARCH_CP15_TIMER) {
 		if (IS_ENABLED(CONFIG_ARM64) || arch_timer_use_virtual)
 			arch_timer_read_counter = arch_counter_get_cntvct;
@@ -476,12 +507,24 @@ static void __init arch_counter_register(unsigned type)
 	}
 
 	start_count = arch_timer_read_counter();
+	/**
+	 * 向系统注册一个clock soure
+	 * 并给出counter的工作频率作为传入的参数。
+	 */
 	clocksource_register_hz(&clocksource_counter, arch_timer_rate);
 	cyclecounter.mult = clocksource_counter.mult;
 	cyclecounter.shift = clocksource_counter.shift;
+	/**
+	 * 注册一个timercounter
+	 * 可以通过arch_timer_get_timecounter获取timercounter
+	 * 并可以调用timecounter_read获取一个纳秒值
+	 */
 	timecounter_init(&timecounter, &cyclecounter, start_count);
 
 	/* 56 bits minimum, so we assume worst case rollover */
+	/**
+	 * 注册sched clock
+	 */
 	sched_clock_register(arch_timer_read_counter, 56, arch_timer_rate);
 }
 
@@ -556,18 +599,25 @@ static int __init arch_timer_register(void)
 	int err;
 	int ppi;
 
+	/* 配一个类型是struct clock_event_device的per cpu变量 */
 	arch_timer_evt = alloc_percpu(struct clock_event_device);
-	if (!arch_timer_evt) {
+	if (!arch_timer_evt) {/* 哦豁，没内存了 */
 		err = -ENOMEM;
 		goto out;
 	}
 
-	if (arch_timer_use_virtual) {
+	if (arch_timer_use_virtual) {/* 使用虚拟中断 */
 		ppi = arch_timer_ppi[VIRT_PPI];
+		/**
+		 * 注册虚拟Timer中断
+		 */
 		err = request_percpu_irq(ppi, arch_timer_handler_virt,
 					 "arch_timer", arch_timer_evt);
 	} else {
 		ppi = arch_timer_ppi[PHYS_SECURE_PPI];
+		/**
+		 * 注册物理Timer中断
+		 */
 		err = request_percpu_irq(ppi, arch_timer_handler_phys,
 					 "arch_timer", arch_timer_evt);
 		if (!err && arch_timer_ppi[PHYS_NONSECURE_PPI]) {
@@ -586,15 +636,29 @@ static int __init arch_timer_register(void)
 		goto out_free;
 	}
 
+	/**
+	 * 注册CPU热插拨事件通知
+	 * 在CPU上线时，注册CPU本地时钟
+	 */
 	err = register_cpu_notifier(&arch_timer_cpu_nb);
 	if (err)
 		goto out_free_irq;
 
+	/**
+	 * 注册一个回调函数
+	 * 在processor进入和退出low power state的时候会调用该回调函数
+	 * 以进行电源管理相关的处理
+	 */
 	err = arch_timer_cpu_pm_init();
 	if (err)
 		goto out_unreg_notify;
 
 	/* Immediately configure the timer on the boot CPU */
+	/**
+	 * 初始化BSP上的timer硬件对应的clock event device
+	 * 并调用clockevents_register_device函数
+	 * 将该clock event device注册到linux kernel的时间子系统中
+	 */
 	arch_timer_setup(this_cpu_ptr(arch_timer_evt));
 
 	return 0;
@@ -676,6 +740,7 @@ static void __init arch_timer_common_init(void)
 	unsigned mask = ARCH_CP15_TIMER | ARCH_MEM_TIMER;
 
 	/* Wait until both nodes are probed if we have two timers */
+	/* 等两个Timer都初始化完再执行后面的初始化 */
 	if ((arch_timers_present & mask) != mask) {
 		if (arch_timer_needs_probing(ARCH_MEM_TIMER, arch_timer_mem_of_match))
 			return;
@@ -683,8 +748,17 @@ static void __init arch_timer_common_init(void)
 			return;
 	}
 
+	/**
+	 * 输出ARM generic timer的相关信息到控制台
+	 */
 	arch_timer_banner(arch_timers_present);
+	/**
+	 * 向linux kernel的时间子系统注册clock source、timer counter、shed clock设备
+	 */
 	arch_counter_register(arch_timers_present);
+	/**
+	 * 注册delay timer
+	 */
 	arch_timer_arch_init();
 }
 
@@ -698,9 +772,19 @@ static void __init arch_timer_init(void)
 	 * If no interrupt provided for virtual timer, we'll have to
 	 * stick to the physical timer. It'd better be accessible...
 	 */
+	/**
+	 * 系统运行于hyp模式
+	 * 或者没有定义virtual timer的中断
+	 * 都必须用物理TIMER中断
+	 */
 	if (is_hyp_mode_available() || !arch_timer_ppi[VIRT_PPI]) {
+		/* 设定arch_timer_use_virtual这个全局变量为false */
 		arch_timer_use_virtual = false;
 
+		/**
+		 * 如果没有虚拟中断，就用物理中断
+		 * 那么secure和non-secure physical timer event PPI就必须定义
+		 */
 		if (!arch_timer_ppi[PHYS_SECURE_PPI] ||
 		    !arch_timer_ppi[PHYS_NONSECURE_PPI]) {
 			pr_warn("arch_timer: No interrupt available, giving up\n");
@@ -708,23 +792,47 @@ static void __init arch_timer_init(void)
 		}
 	}
 
+	/**
+	 * 向Linux时间子系统注册设备
+	 */
 	arch_timer_register();
+	/**
+	 * CP 15 Timer和Mem Timer的通用处理
+	 */
 	arch_timer_common_init();
 }
 
+/**
+ * CP 15 TIMER的初始化
+ */
 static void __init arch_timer_of_init(struct device_node *np)
 {
 	int i;
 
+	/**
+	 * 之前已经有一个ARM arch timer的device node进行了初始化的动作
+	 */
 	if (arch_timers_present & ARCH_CP15_TIMER) {
+		/**
+		 * 多半是由于device tree的database中有两个或者多个cp15 timer的节点，这时候
+		 * 我们初始化一个就OK了
+		 */
 		pr_warn("arch_timer: multiple nodes in dt, skipping\n");
 		return;
 	}
 
 	arch_timers_present |= ARCH_CP15_TIMER;
+	/* 分配IRQ */
 	for (i = PHYS_SECURE_PPI; i < MAX_TIMER_PPI; i++)
+		/**
+		 * irq_of_parse_and_map对该device node中的interrupt属性进行分析
+		 * 并分配IRQ number，建立HW interrupt ID和该IRQ number的映射
+		 */
 		arch_timer_ppi[i] = irq_of_parse_and_map(np, i);
 
+	/**
+	 * 确定system counter的输入clock频率
+	 */
 	arch_timer_detect_rate(NULL, np);
 
 	arch_timer_c3stop = !of_property_read_bool(np, "always-on");

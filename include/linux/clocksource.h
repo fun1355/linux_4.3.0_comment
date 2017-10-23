@@ -278,6 +278,10 @@ extern int clocksource_mmio_init(void __iomem *, const char *,
 
 extern int clocksource_i8253_init(void);
 
+/**
+ * 是初始化了一个struct of_device_id的静态常量
+ * 并放置在__clksrc_of_table section中
+ */
 #define CLOCKSOURCE_OF_DECLARE(name, compat, fn) \
 	OF_DECLARE_1(clksrc, name, compat, fn)
 

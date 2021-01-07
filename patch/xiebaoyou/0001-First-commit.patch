@@ -1,21 +1,3 @@
-From 4985864cdc2bf342694b84e07f45d3f42b4b3c39 Mon Sep 17 00:00:00 2001
-From: xiebaoyou <scxby@163.com>
-Date: Wed, 11 Nov 2015 20:11:59 +0800
-Subject: [PATCH] First commit
-
----
- README.md | 1 +
- 1 file changed, 1 insertion(+)
- create mode 100644 README.md
-
-diff --git a/README.md b/README.md
-new file mode 100644
-index 00000000..37d6db35
---- /dev/null
-+++ b/README.md
-@@ -0,0 +1 @@
-+Hello linux-4.3.0-comment
-\ No newline at end of file
--- 
-2.25.1
-
+version https://git-lfs.github.com/spec/v1
+oid sha256:b25b06f275d212852ac33ce5f1a74cc6123a7b25711653be260bac8d385b89a0
+size 448

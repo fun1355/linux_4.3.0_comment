@@ -1,0 +1,400 @@
+From f807025d19f7c8f1439402c0c9ea6452b4f3c2da Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Sat, 14 Nov 2015 17:27:16 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E5=85=AD=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ arch/arm/kernel/irq.c   |  4 ++++
+ include/linux/irq.h     | 13 +++++++++++++
+ include/linux/irqdesc.h | 19 +++++++++++++++++++
+ init/main.c             | 17 +++++++++++++----
+ kernel/extable.c        |  5 +++++
+ kernel/irq/irqdesc.c    |  6 ++++++
+ kernel/params.c         | 17 +++++++++++++----
+ kernel/pid.c            |  3 +++
+ kernel/rcu/tree.c       |  3 +++
+ lib/extable.c           |  1 +
+ mm/page_alloc.c         |  6 ++++++
+ 11 files changed, 86 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm/kernel/irq.c b/arch/arm/kernel/irq.c
+index daa5d1ed..9fc07997 100644
+--- a/arch/arm/kernel/irq.c
++++ b/arch/arm/kernel/irq.c
+@@ -85,10 +85,14 @@ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
+ 	handle_IRQ(irq, regs);
+ }
+ 
++/**
++ * 初始化irq
++ */
+ void __init init_IRQ(void)
+ {
+ 	int ret;
+ 
++	//执行中断控制器的初始化。
+ 	if (IS_ENABLED(CONFIG_OF) && !machine_desc->init_irq)
+ 		irqchip_init();
+ 	else
+diff --git a/include/linux/irq.h b/include/linux/irq.h
+index 11bf0928..56239dff 100644
+--- a/include/linux/irq.h
++++ b/include/linux/irq.h
+@@ -135,12 +135,17 @@ struct irq_domain;
+  * @msi_desc:		MSI descriptor
+  */
+ struct irq_common_data {
++	//状态
+ 	unsigned int		state_use_accessors;
+ #ifdef CONFIG_NUMA
++	//用于负载平衡
+ 	unsigned int		node;
+ #endif
++	//中断私有数据
+ 	void			*handler_data;
++	//msi描述符
+ 	struct msi_desc		*msi_desc;
++	//中断亲和性
+ 	cpumask_var_t		affinity;
+ };
+ 
+@@ -159,15 +164,23 @@ struct irq_common_data {
+  *			methods, to allow shared chip implementations
+  */
+ struct irq_data {
++	//预先计算好的，访问寄存器的位图。
+ 	u32			mask;
++	//中断编号
+ 	unsigned int		irq;
++	//硬件中断编号
+ 	unsigned long		hwirq;
++	//指向所有中断芯片共享数据的指针
+ 	struct irq_common_data	*common;
++	//中断控制芯片
+ 	struct irq_chip		*chip;
++	//将硬件中断编号转换为中断编号的域
+ 	struct irq_domain	*domain;
+ #ifdef	CONFIG_IRQ_DOMAIN_HIERARCHY
++	//在支持多级控制域的时候，指向上级结构
+ 	struct irq_data		*parent_data;
+ #endif
++	//平台特定的中断控制器数据
+ 	void			*chip_data;
+ };
+ 
+diff --git a/include/linux/irqdesc.h b/include/linux/irqdesc.h
+index 0ec5cf53..5e45d1e5 100644
+--- a/include/linux/irqdesc.h
++++ b/include/linux/irqdesc.h
+@@ -43,24 +43,40 @@ struct pt_regs;
+  * @dir:		/proc/irq/ procfs entry
+  * @name:		flow handler name for /proc/interrupts output
+  */
++/**
++ * 中断描述符
++ */
+ struct irq_desc {
+ 	struct irq_common_data	irq_common_data;
++	//中断控制器相关的数据
+ 	struct irq_data		irq_data;
++	//中断在每个CPU上的执行状态
+ 	unsigned int __percpu	*kstat_irqs;
++	//高级irq事件事件??
+ 	irq_flow_handler_t	handle_irq;
+ #ifdef CONFIG_IRQ_PREFLOW_FASTEOI
++	//arm上未用
+ 	irq_preflow_handler_t	preflow_handler;
+ #endif
++	//注册的irq回调链表
+ 	struct irqaction	*action;	/* IRQ action list */
++	//和irq_common_data中的状态有什么区别?
+ 	unsigned int		status_use_accessors;
+ 	unsigned int		core_internal_state__do_not_mess_with_it;
++	//禁止该中断的次数
+ 	unsigned int		depth;		/* nested irq disables */
++	//打开该中断的次数
+ 	unsigned int		wake_depth;	/* nested wake enables */
++	//发生的中断次数，用于检测硬件故障。
+ 	unsigned int		irq_count;	/* For detecting broken IRQs */
++	//上次未处理该中断的时间。
+ 	unsigned long		last_unhandled;	/* Aging timer for unhandled count */
++	//未处理的中断次数
+ 	unsigned int		irqs_unhandled;
++	//???
+ 	atomic_t		threads_handled;
+ 	int			threads_handled_last;
++	//保护该数据结构的自旋锁
+ 	raw_spinlock_t		lock;
+ 	struct cpumask		*percpu_enabled;
+ #ifdef CONFIG_SMP
+@@ -71,7 +87,9 @@ struct irq_desc {
+ #endif
+ #endif
+ 	unsigned long		threads_oneshot;
++	//正在运行该中断irqaction的线程数量。
+ 	atomic_t		threads_active;
++	//该中断sync等待队列
+ 	wait_queue_head_t       wait_for_threads;
+ #ifdef CONFIG_PM_SLEEP
+ 	unsigned int		nr_actions;
+@@ -84,6 +102,7 @@ struct irq_desc {
+ #endif
+ 	int			parent_irq;
+ 	struct module		*owner;
++	//proc中的名称
+ 	const char		*name;
+ } ____cacheline_internodealigned_in_smp;
+ 
+diff --git a/init/main.c b/init/main.c
+index 2492d22a..4d6bec8d 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -415,17 +415,21 @@ static noinline void __init_refok rest_init(void)
+ }
+ 
+ /* Check for early params. */
++/**
++ * 对未修正的参数行中，某一项参数进行解析
++ */
+ static int __init do_early_param(char *param, char *val,
+ 				 const char *unused, void *arg)
+ {
+ 	const struct obs_kernel_param *p;
+ 
++	//__setup_start,__setup_end保存了__setup，early_param宏定义的初始化函数
+ 	for (p = __setup_start; p < __setup_end; p++) {
+-		if ((p->early && parameq(param, p->str)) ||
++		if ((p->early && parameq(param, p->str)) || 
+ 		    (strcmp(param, "console") == 0 &&
+ 		     strcmp(p->str, "earlycon") == 0)
+ 		) {
+-			if (p->setup_func(val) != 0)
++			if (p->setup_func(val) != 0)//调用注册的回调
+ 				pr_warn("Malformed early option '%s'\n", param);
+ 		}
+ 	}
+@@ -433,6 +437,7 @@ static int __init do_early_param(char *param, char *val,
+ 	return 0;
+ }
+ 
++//解析参数行，并调用do_early_param对它进行处理
+ void __init parse_early_options(char *cmdline)
+ {
+ 	parse_args("early options", cmdline, NULL, 0, 0, 0, NULL,
+@@ -440,15 +445,19 @@ void __init parse_early_options(char *cmdline)
+ }
+ 
+ /* Arch code calls this early on, or if not, just before other parsing. */
++/**
++ * 用未修正的原始参数进行解析
++ */
+ void __init parse_early_param(void)
+ {
+ 	static int done __initdata;
+ 	static char tmp_cmdline[COMMAND_LINE_SIZE] __initdata;
+ 
+-	if (done)
++	if (done) //某些架构可能在架构相关代码中调用了，这里防止多次初始化。
+ 		return;
+ 
+ 	/* All fall through to do_early_param. */
++	//复制未修正的参数行，并对它进行解析。
+ 	strlcpy(tmp_cmdline, boot_command_line, COMMAND_LINE_SIZE);
+ 	parse_early_options(tmp_cmdline);
+ 	done = 1;
+@@ -576,7 +585,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	pr_notice("Kernel command line: %s\n", boot_command_line);
+ 	//解析内核参数，第一次解析
+ 	parse_early_param();
+-	//第二次解析
++	//第二次解析,static_command_line中是在第一阶段中未处理的参数
+ 	after_dashes = parse_args("Booting kernel",
+ 				  static_command_line, __start___param,
+ 				  __stop___param - __start___param,
+diff --git a/kernel/extable.c b/kernel/extable.c
+index e820ccee..baeea90b 100644
+--- a/kernel/extable.c
++++ b/kernel/extable.c
+@@ -39,10 +39,15 @@ extern struct exception_table_entry __stop___ex_table[];
+ u32 __initdata __visible main_extable_sort_needed = 1;
+ 
+ /* Sort the kernel's built-in exception table */
++/**
++ * 对内核中的异常修复表进行排序
++ */
+ void __init sort_main_extable(void)
+ {
++	//这个条件一般是满足的
+ 	if (main_extable_sort_needed && __stop___ex_table > __start___ex_table) {
+ 		pr_notice("Sorting __ex_table...\n");
++		//对修复表进行排序
+ 		sort_extable(__start___ex_table, __stop___ex_table);
+ 	}
+ }
+diff --git a/kernel/irq/irqdesc.c b/kernel/irq/irqdesc.c
+index cbc2bd4a..786689d6 100644
+--- a/kernel/irq/irqdesc.c
++++ b/kernel/irq/irqdesc.c
+@@ -269,20 +269,26 @@ int __init early_irq_init(void)
+ 	int count, i, node = first_online_node;
+ 	struct irq_desc *desc;
+ 
++	//设置默认的中断亲和性位图
+ 	init_irq_default_affinity();
+ 
+ 	printk(KERN_INFO "NR_IRQS:%d\n", NR_IRQS);
+ 
++	//得到中断描述符数组及其大小
+ 	desc = irq_desc;
+ 	count = ARRAY_SIZE(irq_desc);
+ 
++	//设置所有中断的默认值
+ 	for (i = 0; i < count; i++) {
++		//记录每CPU上中断执行统计的结构
+ 		desc[i].kstat_irqs = alloc_percpu(unsigned int);
++		//分配亲和性位图
+ 		alloc_masks(&desc[i], GFP_KERNEL, node);
+ 		raw_spin_lock_init(&desc[i].lock);
+ 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
+ 		desc_set_defaults(i, &desc[i], node, NULL);
+ 	}
++	//arm上面什么都不做
+ 	return arch_early_irq_init();
+ }
+ 
+diff --git a/kernel/params.c b/kernel/params.c
+index b6554aa7..9cfd4d6b 100644
+--- a/kernel/params.c
++++ b/kernel/params.c
+@@ -117,6 +117,9 @@ static void param_check_unsafe(const struct kernel_param *kp)
+ 	}
+ }
+ 
++/**
++ * 处理单个参数
++ */
+ static int parse_one(char *param,
+ 		     char *val,
+ 		     const char *doing,
+@@ -132,8 +135,8 @@ static int parse_one(char *param,
+ 	int err;
+ 
+ 	/* Find parameter */
+-	for (i = 0; i < num_params; i++) {
+-		if (parameq(param, params[i].name)) {
++	for (i = 0; i < num_params; i++) {//在参数区查找所有可用参数
++		if (parameq(param, params[i].name)) {//找到了
+ 			if (params[i].level < min_level
+ 			    || params[i].level > max_level)
+ 				return 0;
+@@ -143,9 +146,12 @@ static int parse_one(char *param,
+ 				return -EINVAL;
+ 			pr_debug("handling %s with %p\n", param,
+ 				params[i].ops->set);
++			//锁住模块
+ 			kernel_param_lock(params[i].mod);
+ 			param_check_unsafe(&params[i]);
++			//调用模块的参数解析
+ 			err = params[i].ops->set(val, &params[i]);
++			//模块解锁
+ 			kernel_param_unlock(params[i].mod);
+ 			return err;
+ 		}
+@@ -226,7 +232,7 @@ char *parse_args(const char *doing,
+ 	char *param, *val;
+ 
+ 	/* Chew leading spaces */
+-	args = skip_spaces(args);
++	args = skip_spaces(args);//跳过前面的空格
+ 
+ 	if (*args)
+ 		pr_debug("doing %s, parsing ARGS: '%s'\n", doing, args);
+@@ -235,13 +241,16 @@ char *parse_args(const char *doing,
+ 		int ret;
+ 		int irq_was_disabled;
+ 
++		//找下一个参数及其值
+ 		args = next_arg(args, &param, &val);
+ 		/* Stop at -- */
+-		if (!val && strcmp(param, "--") == 0)
++		if (!val && strcmp(param, "--") == 0)//--表示注释，忽略后面的参数
+ 			return args;
+ 		irq_was_disabled = irqs_disabled();
++		//解析单个参数
+ 		ret = parse_one(param, val, doing, params, num,
+ 				min_level, max_level, arg, unknown);
++		//在解析过程中意外的打开了中断，这里警告。
+ 		if (irq_was_disabled && !irqs_disabled())
+ 			pr_warn("%s: option '%s' enabled irq's!\n",
+ 				doing, param);
+diff --git a/kernel/pid.c b/kernel/pid.c
+index ca368793..36afec8a 100644
+--- a/kernel/pid.c
++++ b/kernel/pid.c
+@@ -572,6 +572,9 @@ struct pid *find_ge_pid(int nr, struct pid_namespace *ns)
+  * machine.  From a minimum of 16 slots up to 4096 slots at one gigabyte or
+  * more.
+  */
++/**
++ * 初始化系统管理所有进程的数据结构
++ */
+ void __init pidhash_init(void)
+ {
+ 	unsigned int i, pidhash_size;
+diff --git a/kernel/rcu/tree.c b/kernel/rcu/tree.c
+index 775d36cc..c447f9ce 100644
+--- a/kernel/rcu/tree.c
++++ b/kernel/rcu/tree.c
+@@ -4288,6 +4288,9 @@ static void __init rcu_dump_rcu_node_tree(struct rcu_state *rsp)
+ 	pr_cont("\n");
+ }
+ 
++/**
++ * 初始化rcu系统
++ */
+ void __init rcu_init(void)
+ {
+ 	int cpu;
+diff --git a/lib/extable.c b/lib/extable.c
+index 4cac81ec..87364de1 100644
+--- a/lib/extable.c
++++ b/lib/extable.c
+@@ -36,6 +36,7 @@ static int cmp_ex(const void *a, const void *b)
+ void sort_extable(struct exception_table_entry *start,
+ 		  struct exception_table_entry *finish)
+ {
++	//这里的sort不需要递归，时间复杂度是O(n * log n)
+ 	sort(start, finish - start, sizeof(struct exception_table_entry),
+ 	     cmp_ex, NULL);
+ }
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index d971b983..be2c44ea 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -6111,6 +6111,9 @@ void __init free_area_init(unsigned long *zones_size)
+ 			__pa(PAGE_OFFSET) >> PAGE_SHIFT, NULL);
+ }
+ 
++/**
++ * CPU热插拨时的回调。
++ */
+ static int page_alloc_cpu_notify(struct notifier_block *self,
+ 				 unsigned long action, void *hcpu)
+ {
+@@ -6142,6 +6145,9 @@ static int page_alloc_cpu_notify(struct notifier_block *self,
+ 
+ void __init page_alloc_init(void)
+ {
++	/**
++	 * 注册CPU热插拨侦听回调。
++	 */
+ 	hotcpu_notifier(page_alloc_cpu_notify, 0);
+ }
+ 
+-- 
+2.25.1
+

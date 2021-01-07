@@ -1,0 +1,93 @@
+From a5072dc72e015dbf864ce1c7a60309c381bfc6b4 Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Wed, 11 Nov 2015 23:46:35 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20=E8=A7=A3=E5=8E=8B=E5=86=85?=
+ =?UTF-8?q?=E6=A0=B8=E5=B9=B6=E8=B7=B3=E8=BD=AC=E5=88=B0=E5=86=85=E6=A0=B8?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ arch/arm/boot/compressed/head.S | 18 +++++++++++++++++-
+ arch/arm/boot/compressed/misc.c |  8 +++++++-
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm/boot/compressed/head.S b/arch/arm/boot/compressed/head.S
+index 0ba5b815..3df414fd 100644
+--- a/arch/arm/boot/compressed/head.S
++++ b/arch/arm/boot/compressed/head.S
+@@ -558,7 +558,10 @@ not_relocated:	mov	r0, #0
+ /**
+  * 开始解压内核
+  */
+-		bl	decompress_kernel
++		bl	decompress_kernel	@r0:zImage解压位置，r1:位于堆栈上方的动态内存，r2:动态内存大小，r3:体系架构编号
++/**
++ * 清除缓存，并关闭缓存
++ */
+ 		bl	cache_clean_flush
+ 		bl	cache_off
+ 		mov	r1, r7			@ restore architecture number
+@@ -582,6 +585,9 @@ not_relocated:	mov	r0, #0
+ 		.align	2
+ .L__hyp_reentry_vectors_offset:	.long	__hyp_reentry_vectors - .
+ #else
++/**
++ * 解压完毕，准备启动内核
++ */
+ 		b	__enter_kernel
+ #endif
+ 
+@@ -1088,6 +1094,9 @@ proc_types:
+  *  r4, r7, r8
+  */
+ 		.align	5
++/**
++ * 关闭cache的函数位于proc_type偏移12处
++ */
+ cache_off:	mov	r3, #12			@ cache_off function
+ 		b	call_cache_fn
+ 
+@@ -1149,6 +1158,9 @@ __armv7_mmu_cache_off:
+  */
+ 		.align	5
+ cache_clean_flush:
++/**
++ * 清除缓存的函数位于proc_type偏移16位置
++ */
+ 		mov	r3, #16
+ 		b	call_cache_fn
+ 
+@@ -1396,6 +1408,10 @@ __hyp_reentry_vectors:
+ 
+ __enter_kernel:
+ 		mov	r0, #0			@ must be 0
++/**
++ * 跳转到解压内核起始地址处执行。
++ * 代码位于arch/arm/kernel/head.S
++ */
+  ARM(		mov	pc, r4		)	@ call kernel
+  M_CLASS(	add	r4, r4, #1	)	@ enter in Thumb mode for M class
+  THUMB(		bx	r4		)	@ entry point is always ARM for A/R classes
+diff --git a/arch/arm/boot/compressed/misc.c b/arch/arm/boot/compressed/misc.c
+index d4f891f5..c3bc04c3 100644
+--- a/arch/arm/boot/compressed/misc.c
++++ b/arch/arm/boot/compressed/misc.c
+@@ -141,7 +141,13 @@ void __stack_chk_fail(void)
+ 
+ extern int do_decompress(u8 *input, int len, u8 *output, void (*error)(char *x));
+ 
+-
++/**
++ * 解压内核
++ *		output_start:解压后的内核起始地址
++ *		free_mem_ptr_p:解压过程中可以使用的内存起始地址，们于堆栈顶部上方
++ *		free_mem_ptr_end_p:可用内存大小
++ *		arch_id:体系ID
++ */
+ void
+ decompress_kernel(unsigned long output_start, unsigned long free_mem_ptr_p,
+ 		unsigned long free_mem_ptr_end_p,
+-- 
+2.25.1
+

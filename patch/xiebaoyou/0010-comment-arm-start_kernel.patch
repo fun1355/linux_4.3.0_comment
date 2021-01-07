@@ -1,0 +1,222 @@
+From 6046fc65add195254012d7ced89b4daabdf30511 Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Thu, 12 Nov 2015 14:01:09 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E4=B8=80=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ arch/arm/include/asm/stackprotector.h |  5 +++++
+ arch/arm/kernel/setup.c               |  6 ++++++
+ include/linux/cgroup-defs.h           |  6 ++++++
+ init/main.c                           | 22 ++++++++++++++++++++++
+ kernel/cgroup.c                       |  3 +++
+ kernel/locking/lockdep.c              | 10 ++++++++++
+ lib/debugobjects.c                    |  6 ++++++
+ 7 files changed, 58 insertions(+)
+
+diff --git a/arch/arm/include/asm/stackprotector.h b/arch/arm/include/asm/stackprotector.h
+index de003327..2049c16b 100644
+--- a/arch/arm/include/asm/stackprotector.h
++++ b/arch/arm/include/asm/stackprotector.h
+@@ -23,14 +23,19 @@ extern unsigned long __stack_chk_guard;
+  * NOTE: this must only be called from functions that never return,
+  * and it must always be inlined.
+  */
++/**
++ * 在初始任务的栈中，放入用于检测堆栈返回值攻击的canary值。
++ */
+ static __always_inline void boot_init_stack_canary(void)
+ {
+ 	unsigned long canary;
+ 
+ 	/* Try to get a semi random initial value. */
++	//生成随机的小整数，作为canary值
+ 	get_random_bytes(&canary, sizeof(canary));
+ 	canary ^= LINUX_VERSION_CODE;
+ 
++	//记录当前线程(idle线程)的canary值。
+ 	current->stack_canary = canary;
+ 	__stack_chk_guard = current->stack_canary;
+ }
+diff --git a/arch/arm/kernel/setup.c b/arch/arm/kernel/setup.c
+index 20edd349..b190937c 100644
+--- a/arch/arm/kernel/setup.c
++++ b/arch/arm/kernel/setup.c
+@@ -513,12 +513,17 @@ void notrace cpu_init(void)
+ 
+ u32 __cpu_logical_map[NR_CPUS] = { [0 ... NR_CPUS-1] = MPIDR_INVALID };
+ 
++/**
++ * 设置boot阶段的主CPU
++ */
+ void __init smp_setup_processor_id(void)
+ {
+ 	int i;
++	//从控制寄存器中读入当前CPU号
+ 	u32 mpidr = is_smp() ? read_cpuid_mpidr() & MPIDR_HWID_BITMASK : 0;
+ 	u32 cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
+ 
++	//设置0号逻辑CPU对应的物理CPU
+ 	cpu_logical_map(0) = cpu;
+ 	for (i = 1; i < nr_cpu_ids; ++i)
+ 		cpu_logical_map(i) = i == cpu ? 0 : i;
+@@ -528,6 +533,7 @@ void __init smp_setup_processor_id(void)
+ 	 * using percpu variable early, for example, lockdep will
+ 	 * access percpu variable inside lock_release
+ 	 */
++	//为了避免访问percpu数据出现异常
+ 	set_my_cpu_offset(0);
+ 
+ 	pr_info("Booting Linux on physical CPU 0x%x\n", mpidr);
+diff --git a/include/linux/cgroup-defs.h b/include/linux/cgroup-defs.h
+index 8492721b..df69a255 100644
+--- a/include/linux/cgroup-defs.h
++++ b/include/linux/cgroup-defs.h
+@@ -89,6 +89,9 @@ enum {
+  * Fields marked with "PI:" are public and immutable and may be accessed
+  * directly without synchronization.
+  */
++/**
++ * 各子系统的CGROUP状态
++ */
+ struct cgroup_subsys_state {
+ 	/* PI: the cgroup that this css is attached to */
+ 	struct cgroup *cgroup;
+@@ -134,6 +137,9 @@ struct cgroup_subsys_state {
+  * list_add()/del() can bump the reference count on the entire cgroup
+  * set for a task.
+  */
++/**
++ * cgroup_subsys_state状态集合，每个进程有这样一个集合。
++ */
+ struct css_set {
+ 	/* Reference count */
+ 	atomic_t refcount;
+diff --git a/init/main.c b/init/main.c
+index 9e64d709..7d4a11e2 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -494,6 +494,10 @@ static void __init mm_init(void)
+ 	ioremap_huge_init();
+ }
+ 
++/**
++ * 内核初始化，在ARM架构中，从__mmap_switched汇编函数中调用此函数。
++ * asmlinkage支持从汇编调用此函数
++ */
+ asmlinkage __visible void __init start_kernel(void)
+ {
+ 	char *command_line;
+@@ -503,19 +507,37 @@ asmlinkage __visible void __init start_kernel(void)
+ 	 * Need to run as early as possible, to initialize the
+ 	 * lockdep hash:
+ 	 */
++	/**
++	 * 初始化lockdep诊断功能
++	 * 主要是初始化它用到的哈希表
++	 */
+ 	lockdep_init();
++	//设置init任务的堆栈魔法数，用于故障诊断
+ 	set_task_stack_end_magic(&init_task);
++	//设置启动CPU，ARM架构也支持从非0 CPU启动了
+ 	smp_setup_processor_id();
++	/**
++	 * 初始化内核对象跟踪模块用到的哈希表及自旋锁
++	 */
+ 	debug_objects_early_init();
+ 
+ 	/*
+ 	 * Set up the the initial canary ASAP:
+ 	 */
++	/**
++	 * 在堆栈中放入"金丝雀"，这种小动物对矿山上的有毒物质很敏感
++	 * 用于侦测堆栈攻击，防止攻击代码修改返回地址。
++	 */
+ 	boot_init_stack_canary();
+ 
++	/**
++	 * 初始化cgroup子系统
++	 */
+ 	cgroup_init_early();
+ 
++	//关中断，
+ 	local_irq_disable();
++	//诊断用，表示目前当前处于boot阶段，并且中断被关闭了。
+ 	early_boot_irqs_disabled = true;
+ 
+ /*
+diff --git a/kernel/cgroup.c b/kernel/cgroup.c
+index 2c9eae6a..3e26e8f2 100644
+--- a/kernel/cgroup.c
++++ b/kernel/cgroup.c
+@@ -5041,6 +5041,9 @@ static void __init cgroup_init_subsys(struct cgroup_subsys *ss, bool early)
+  * Initialize cgroups at system boot, and initialize any
+  * subsystems that request early init.
+  */
++/**
++ * 初始化idle进程的cgroup数据结构。
++ */
+ int __init cgroup_init_early(void)
+ {
+ 	static struct cgroup_sb_opts __initdata opts;
+diff --git a/kernel/locking/lockdep.c b/kernel/locking/lockdep.c
+index 4e49cc4c..ef068e7c 100644
+--- a/kernel/locking/lockdep.c
++++ b/kernel/locking/lockdep.c
+@@ -4013,6 +4013,9 @@ out_restore:
+ 	raw_local_irq_restore(flags);
+ }
+ 
++/**
++ * 初始化lockdep，该模块用于死锁检测
++ */
+ void lockdep_init(void)
+ {
+ 	int i;
+@@ -4023,9 +4026,16 @@ void lockdep_init(void)
+ 	 * call lockdep_init() from the start_kernel() itself,
+ 	 * and we want to initialize the hashes only once:
+ 	 */
++	/**
++	 * 某些体系结构有自己的start_kernel函数，可能重复调用lockdep_init
++	 * 如果已经调用过此函数，则退出
++	 */
+ 	if (lockdep_initialized)
+ 		return;
+ 
++	/**
++	 * 初始化本模块用到的两个哈希表中，哈希桶所用的链表。
++	 */
+ 	for (i = 0; i < CLASSHASH_SIZE; i++)
+ 		INIT_LIST_HEAD(classhash_table + i);
+ 
+diff --git a/lib/debugobjects.c b/lib/debugobjects.c
+index 547f7f92..26865cd2 100644
+--- a/lib/debugobjects.c
++++ b/lib/debugobjects.c
+@@ -1004,13 +1004,19 @@ static inline void debug_objects_selftest(void) { }
+  * the static object pool objects into the poll list. After this call
+  * the object tracker is fully operational.
+  */
++/**
++ * 对象跟踪模块会在内核中注入代码，跟踪对象的生命周期
++ * 并验证在这些对象上的操作是否合法。
++ */
+ void __init debug_objects_early_init(void)
+ {
+ 	int i;
+ 
++	//初始化保护哈希桶的自旋锁
+ 	for (i = 0; i < ODEBUG_HASH_SIZE; i++)
+ 		raw_spin_lock_init(&obj_hash[i].lock);
+ 
++	//将初始静态节点添加到obj_pool中。
+ 	for (i = 0; i < ODEBUG_POOL_SIZE; i++)
+ 		hlist_add_head(&obj_static_pool[i].node, &obj_pool);
+ }
+-- 
+2.25.1
+

@@ -1,0 +1,24 @@
+From d9342498fcabaade46350be1101c29040c9d460d Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Wed, 11 Nov 2015 21:07:40 +0800
+Subject: [PATCH] =?UTF-8?q?[readme]=20=E6=88=91=E7=9A=84=E6=B5=8B=E8=AF=95?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ readme.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/readme.txt b/readme.txt
+index 1838a0a5..796dfc4f 100644
+--- a/readme.txt
++++ b/readme.txt
+@@ -1,3 +1,3 @@
+-xiebaoyou
++xiebaoyou谢宝友 
+ scxby@163.com
+ http://xiebaoyou.blog.chinaunix.net
+-- 
+2.25.1
+

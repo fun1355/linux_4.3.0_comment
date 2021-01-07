@@ -1,0 +1,399 @@
+From c146974eb419de9d8d4b78c17cc1de888435b647 Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Tue, 17 Nov 2015 16:49:15 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E5=8D=81=E4=BA=8C=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ arch/arm/mm/fault-armv.c |  9 ++++++++-
+ fs/dcache.c              | 14 +++++++++++++-
+ fs/inode.c               |  1 +
+ fs/namespace.c           | 13 +++++++++++++
+ fs/proc/root.c           |  9 +++++++++
+ include/linux/sched.h    |  5 +++++
+ init/main.c              | 17 ++++++++++++++++-
+ kernel/cgroup.c          |  4 ++++
+ kernel/delayacct.c       |  5 +++++
+ kernel/signal.c          |  1 +
+ kernel/taskstats.c       |  1 +
+ lib/radix-tree.c         |  4 ++++
+ 12 files changed, 80 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm/mm/fault-armv.c b/arch/arm/mm/fault-armv.c
+index d9e0d00a..91c2e829 100644
+--- a/arch/arm/mm/fault-armv.c
++++ b/arch/arm/mm/fault-armv.c
+@@ -229,6 +229,9 @@ static int __init check_writebuffer(unsigned long *p1, unsigned long *p2)
+ 	return val != zero;
+ }
+ 
++/**
++ * 检查内存写缓冲的bug
++ */
+ void __init check_writebuffer_bugs(void)
+ {
+ 	struct page *page;
+@@ -237,22 +240,26 @@ void __init check_writebuffer_bugs(void)
+ 
+ 	pr_info("CPU: Testing write buffer coherency: ");
+ 
++	//分配一个待测试页面
+ 	page = alloc_page(GFP_KERNEL);
+ 	if (page) {
+ 		unsigned long *p1, *p2;
+ 		pgprot_t prot = __pgprot_modify(PAGE_KERNEL,
+ 					L_PTE_MT_MASK, L_PTE_MT_BUFFERABLE);
+ 
++		//将该页面映射到两个虚拟地址
+ 		p1 = vmap(&page, 1, VM_IOREMAP, prot);
+ 		p2 = vmap(&page, 1, VM_IOREMAP, prot);
+ 
+ 		if (p1 && p2) {
++			//向两个虚拟地址写入不同的值，看是否有bug
+ 			v = check_writebuffer(p1, p2);
+ 			reason = "enabling work-around";
+ 		} else {
+ 			reason = "unable to map memory\n";
+ 		}
+ 
++		//解除映射并释放内存页面
+ 		vunmap(p1);
+ 		vunmap(p2);
+ 		put_page(page);
+@@ -260,7 +267,7 @@ void __init check_writebuffer_bugs(void)
+ 		reason = "unable to grab page\n";
+ 	}
+ 
+-	if (v) {
++	if (v) {//存在问题，置标志防止别名
+ 		pr_cont("failed, %s\n", reason);
+ 		shared_pte_mask = L_PTE_MT_UNCACHED;
+ 	} else {
+diff --git a/fs/dcache.c b/fs/dcache.c
+index edf66b73..5fe0a381 100644
+--- a/fs/dcache.c
++++ b/fs/dcache.c
+@@ -3415,13 +3415,15 @@ static void __init dcache_init(void)
+ 	 * but it is probably not worth it because of the cache nature
+ 	 * of the dcache. 
+ 	 */
++	//创建dcache缓存slab
+ 	dentry_cache = KMEM_CACHE(dentry,
+ 		SLAB_RECLAIM_ACCOUNT|SLAB_PANIC|SLAB_MEM_SPREAD);
+ 
+ 	/* Hash may have been set up in dcache_init_early */
+-	if (!hashdist)
++	if (!hashdist)//如果在dcache_init_early已经初始化，就退出
+ 		return;
+ 
++	//在这里分配dcache需要哈希缓存
+ 	dentry_hashtable =
+ 		alloc_large_system_hash("Dentry cache",
+ 					sizeof(struct hlist_bl_head),
+@@ -3433,6 +3435,7 @@ static void __init dcache_init(void)
+ 					0,
+ 					0);
+ 
++	//初始化dcache哈希头
+ 	for (loop = 0; loop < (1U << d_hash_shift); loop++)
+ 		INIT_HLIST_BL_HEAD(dentry_hashtable + loop);
+ }
+@@ -3451,16 +3454,25 @@ void __init vfs_caches_init_early(void)
+ 	inode_init_early();
+ }
+ 
++//初始化vfs缓存
+ void __init vfs_caches_init(void)
+ {
++	//缓存文件名称的slab，接口是__getname,__putname
+ 	names_cachep = kmem_cache_create("names_cache", PATH_MAX, 0,
+ 			SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
+ 
++	//初始化dcache目录项缓存需要slab
+ 	dcache_init();
++	//初始化索引节点所需要的缓存slab
+ 	inode_init();
++	//初始化file相关的缓存slab及文件计数器。
+ 	files_init();
++	//根据内存数量，计算最大打开文件数量。
+ 	files_maxfiles_init();
++	//初始化mount需要的缓存
+ 	mnt_init();
++	//初始化设备文件需要的缓存，并注册设备文件系统。
+ 	bdev_cache_init();
++	//初始化字符设备相关的散列表。
+ 	chrdev_init();
+ }
+diff --git a/fs/inode.c b/fs/inode.c
+index 78a17b88..884d5ec2 100644
+--- a/fs/inode.c
++++ b/fs/inode.c
+@@ -1873,6 +1873,7 @@ void __init inode_init_early(void)
+ 		INIT_HLIST_HEAD(&inode_hashtable[loop]);
+ }
+ 
++//与dcache_init类似，略过
+ void __init inode_init(void)
+ {
+ 	unsigned int loop;
+diff --git a/fs/namespace.c b/fs/namespace.c
+index 0570729c..9277625c 100644
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -3107,38 +3107,51 @@ void __init mnt_init(void)
+ 	unsigned u;
+ 	int err;
+ 
++	//mount缓存管理器
+ 	mnt_cache = kmem_cache_create("mnt_cache", sizeof(struct mount),
+ 			0, SLAB_HWCACHE_ALIGN | SLAB_PANIC, NULL);
+ 
++	/**
++	 * mount_hashtable哈希表保存所有已经注册的文件系统
++	 * 需要使用alloc_large_system_hash来分配吗?
++	 */
+ 	mount_hashtable = alloc_large_system_hash("Mount-cache",
+ 				sizeof(struct hlist_head),
+ 				mhash_entries, 19,
+ 				0,
+ 				&m_hash_shift, &m_hash_mask, 0, 0);
++	//分配挂载点哈希表所需要的内存
+ 	mountpoint_hashtable = alloc_large_system_hash("Mountpoint-cache",
+ 				sizeof(struct hlist_head),
+ 				mphash_entries, 19,
+ 				0,
+ 				&mp_hash_shift, &mp_hash_mask, 0, 0);
+ 
++	//分配失败就panic吧
+ 	if (!mount_hashtable || !mountpoint_hashtable)
+ 		panic("Failed to allocate mount hash table\n");
+ 
++	//初始化mount_hashtable、mountpoint_hashtable这两个哈希表的哈希桶
+ 	for (u = 0; u <= m_hash_mask; u++)
+ 		INIT_HLIST_HEAD(&mount_hashtable[u]);
+ 	for (u = 0; u <= mp_hash_mask; u++)
+ 		INIT_HLIST_HEAD(&mountpoint_hashtable[u]);
+ 
++	//创建kernfs_node缓存slab,kernfs用来替代sysfs
+ 	kernfs_init();
+ 
++	//通过kernfs创建sysfs
+ 	err = sysfs_init();
+ 	if (err)
+ 		printk(KERN_WARNING "%s: sysfs_init error: %d\n",
+ 			__func__, err);
++	//在驱动程序模型中添加fs目录
+ 	fs_kobj = kobject_create_and_add("fs", NULL);
+ 	if (!fs_kobj)
+ 		printk(KERN_WARNING "%s: kobj create error\n", __func__);
++	//初始化根文件系统
+ 	init_rootfs();
++	//挂载已经注册的rootfs文件系统
+ 	init_mount_tree();
+ }
+ 
+diff --git a/fs/proc/root.c b/fs/proc/root.c
+index 361ab4ee..e9727050 100644
+--- a/fs/proc/root.c
++++ b/fs/proc/root.c
+@@ -161,21 +161,30 @@ static struct file_system_type proc_fs_type = {
+ 	.fs_flags	= FS_USERNS_VISIBLE | FS_USERNS_MOUNT,
+ };
+ 
++/**
++ * 初始化proc文件系统
++ */
+ void __init proc_root_init(void)
+ {
+ 	int err;
+ 
++	//创建proc_inode缓存管理器
+ 	proc_init_inodecache();
++	//注册proc文件系统。
+ 	err = register_filesystem(&proc_fs_type);
+ 	if (err)
+ 		return;
+ 
++	//proc/self
+ 	proc_self_init();
+ 	proc_thread_self_init();
++	//创建/proc/mounts的软链接
+ 	proc_symlink("mounts", NULL, "self/mounts");
+ 
++	//net子系统的proc
+ 	proc_net_init();
+ 
++	//创建一些proc目录 
+ #ifdef CONFIG_SYSVIPC
+ 	proc_mkdir("sysvipc", NULL);
+ #endif
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index f586414d..7669e8d2 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -871,6 +871,7 @@ struct sched_info {
+ 
+ #ifdef CONFIG_TASK_DELAY_ACCT
+ struct task_delay_info {
++	//保护本结构的自旋锁
+ 	spinlock_t	lock;
+ 	unsigned int	flags;	/* Private per-task flags */
+ 
+@@ -889,14 +890,18 @@ struct task_delay_info {
+ 	 * associated with the operation is added to XXX_delay.
+ 	 * XXX_delay contains the accumulated delay time in nanoseconds.
+ 	 */
++	//块设备io起始时间
+ 	u64 blkio_start;	/* Shared by blkio, swapin */
++	//等待块io的延迟时间
+ 	u64 blkio_delay;	/* wait for sync block io completion */
+ 	u64 swapin_delay;	/* wait for swapin block io completion */
++	//块设备io次数
+ 	u32 blkio_count;	/* total count of the number of sync block */
+ 				/* io operations performed */
+ 	u32 swapin_count;	/* total count of the number of swapin block */
+ 				/* io operations performed */
+ 
++	//等待回收页面的时间
+ 	u64 freepages_start;
+ 	u64 freepages_delay;	/* wait for memory reclaim */
+ 	u32 freepages_count;	/* total count of memory reclaim */
+diff --git a/init/main.c b/init/main.c
+index b0f4048c..05427609 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -641,6 +641,9 @@ asmlinkage __visible void __init start_kernel(void)
+ 	trace_init();
+ 
+ 	context_tracking_init();
++	/**
++	 * 初始化文件系统中使用的基数
++	 */
+ 	radix_tree_init();
+ 	/* init some links before init_ISA_irqs() */
+ 	//中断亲和性相关的初始化。
+@@ -750,19 +753,30 @@ asmlinkage __visible void __init start_kernel(void)
+ 	security_init();
+ 	dbg_late_init();
+ 	vfs_caches_init();
++	//初始化以准备使用进程信号。
+ 	signals_init();
+ 	/* rootfs populating might need page-writeback */
++	//初始化页回写机制。
+ 	page_writeback_init();
++	//注册proc文件系统并生成一些默认的proc文件
+ 	proc_root_init();
+ 	nsfs_init();
+-	//初始化cpuset子系统。
++	//初始化cpuset子系统。设置top_cpuset并将cpuset注册到文件系统。
+ 	cpuset_init();
++	//继续初始化cgroup，在proc中注册cgroup
+ 	cgroup_init();
++	//taskstats是向用户空间传递任务与进程的状态信息，初始化它的netlink接口。
+ 	taskstats_init_early();
++	//delayacct模块对任务的io延迟进行统计，用于分析。这里对其初始化。
+ 	delayacct_init();
+ 
++	/**
++	 * CPU缺陷检查。
++	 * 对arm架构来说，主要是测试写缓存别名。
++	 */
+ 	check_bugs();
+ 
++	//arm不支持,do nothing
+ 	acpi_subsystem_init();
+ 	sfi_init_late();
+ 
+@@ -771,6 +785,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 		efi_free_boot_services();
+ 	}
+ 
++	//初始化ftrace，一个有用的内核调测功能。
+ 	ftrace_init();
+ 
+ 	/* Do the rest non-__init'ed, we're now alive */
+diff --git a/kernel/cgroup.c b/kernel/cgroup.c
+index 3e26e8f2..433b1571 100644
+--- a/kernel/cgroup.c
++++ b/kernel/cgroup.c
+@@ -5080,6 +5080,10 @@ int __init cgroup_init_early(void)
+  * Register cgroup filesystem and /proc file, and initialize
+  * any subsystems that didn't request early init.
+  */
++/**
++ * 执行一些在cgroup_init_early中没有完成的初始化
++ * 在/proc文件系统中注册。
++ */
+ int __init cgroup_init(void)
+ {
+ 	struct cgroup_subsys *ss;
+diff --git a/kernel/delayacct.c b/kernel/delayacct.c
+index ef90b04d..4760b4e6 100644
+--- a/kernel/delayacct.c
++++ b/kernel/delayacct.c
+@@ -32,9 +32,14 @@ static int __init delayacct_setup_disable(char *str)
+ }
+ __setup("nodelayacct", delayacct_setup_disable);
+ 
++/**
++ * 任务延迟统计初始化，依赖于taskstats模块
++ */
+ void delayacct_init(void)
+ {
++	//创建slab管理器
+ 	delayacct_cache = KMEM_CACHE(task_delay_info, SLAB_PANIC);
++	//为init任务分配delayacct内存并关联起来。
+ 	delayacct_tsk_init(&init_task);
+ }
+ 
+diff --git a/kernel/signal.c b/kernel/signal.c
+index 0f6bbbe7..26b4200f 100644
+--- a/kernel/signal.c
++++ b/kernel/signal.c
+@@ -3628,6 +3628,7 @@ __weak const char *arch_vma_name(struct vm_area_struct *vma)
+ 
+ void __init signals_init(void)
+ {
++	//创建slab控制器
+ 	sigqueue_cachep = KMEM_CACHE(sigqueue, SLAB_PANIC);
+ }
+ 
+diff --git a/kernel/taskstats.c b/kernel/taskstats.c
+index 21f82c29..49cf9407 100644
+--- a/kernel/taskstats.c
++++ b/kernel/taskstats.c
+@@ -679,6 +679,7 @@ static const struct genl_ops taskstats_ops[] = {
+ };
+ 
+ /* Needed early in initialization */
++//taskstats参见documentation/taskstats.txt
+ void __init taskstats_init_early(void)
+ {
+ 	unsigned int i;
+diff --git a/lib/radix-tree.c b/lib/radix-tree.c
+index f9ebe1c8..70e69f48 100644
+--- a/lib/radix-tree.c
++++ b/lib/radix-tree.c
+@@ -1483,12 +1483,16 @@ static int radix_tree_callback(struct notifier_block *nfb,
+        return NOTIFY_OK;
+ }
+ 
++//初始化基数
+ void __init radix_tree_init(void)
+ {
++	//基数缓存slab
+ 	radix_tree_node_cachep = kmem_cache_create("radix_tree_node",
+ 			sizeof(struct radix_tree_node), 0,
+ 			SLAB_PANIC | SLAB_RECLAIM_ACCOUNT,
+ 			radix_tree_node_ctor);
++	//基数初始化
+ 	radix_tree_init_maxindex();
++	//注册CPU热插拨回调
+ 	hotcpu_notifier(radix_tree_callback, 0);
+ }
+-- 
+2.25.1
+

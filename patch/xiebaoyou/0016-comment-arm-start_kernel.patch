@@ -1,0 +1,465 @@
+From 2f58c327e0c83ff0ae01db48521cf865a353ae5a Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Sun, 15 Nov 2015 11:47:34 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E4=B8=83=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ arch/arm/kernel/time.c    |  8 ++++++--
+ fs/dcache.c               |  5 ++++-
+ include/linux/interrupt.h | 18 ++++++++++--------
+ include/linux/ktime.h     |  1 +
+ init/main.c               | 16 +++++++++++++++-
+ kernel/cpuset.c           |  3 +++
+ kernel/sched/clock.c      |  5 +++++
+ kernel/softirq.c          |  5 +++++
+ kernel/time/hrtimer.c     |  5 +++++
+ kernel/time/timekeeping.c | 14 +++++++++++---
+ kernel/time/timer.c       |  9 +++++++++
+ mm/page_alloc.c           |  9 +++++----
+ mm/vmalloc.c              |  4 ++++
+ 13 files changed, 83 insertions(+), 19 deletions(-)
+
+diff --git a/arch/arm/kernel/time.c b/arch/arm/kernel/time.c
+index a66e37e2..36be1a5e 100644
+--- a/arch/arm/kernel/time.c
++++ b/arch/arm/kernel/time.c
+@@ -112,10 +112,14 @@ int __init register_persistent_clock(clock_access_fn read_boot,
+ 	return -EINVAL;
+ }
+ 
++/**
++ * 初始化硬件时钟
++ */
+ void __init time_init(void)
+ {
+-	if (machine_desc->init_time) {
+-		machine_desc->init_time();
++	//调用机器的时钟初始化
++	if (machine_desc->init_time) {//在arch/arm/mack-xxxx/mack-xxxx.c中使用MACHINE_START设置
++		machine_desc->init_time();//如qt2410_init_time
+ 	} else {
+ #ifdef CONFIG_COMMON_CLK
+ 		of_clk_init(NULL);
+diff --git a/fs/dcache.c b/fs/dcache.c
+index 5c33aeb0..edf66b73 100644
+--- a/fs/dcache.c
++++ b/fs/dcache.c
+@@ -3387,9 +3387,10 @@ static void __init dcache_init_early(void)
+ 	/* If hashes are distributed across NUMA nodes, defer
+ 	 * hash allocation until vmalloc space is available.
+ 	 */
+-	if (hashdist)
++	if (hashdist)//缓存需要的空间很大，如果需要跨越多个node就延迟分配
+ 		return;
+ 
++	//在64位系统中，vmalloc空间很大，可以在这里分配大内存
+ 	dentry_hashtable =
+ 		alloc_large_system_hash("Dentry cache",
+ 					sizeof(struct hlist_bl_head),
+@@ -3444,7 +3445,9 @@ EXPORT_SYMBOL(d_genocide);
+ 
+ void __init vfs_caches_init_early(void)
+ {
++	//初始化目录项缓存
+ 	dcache_init_early();
++	//初始化inode节点缓存。
+ 	inode_init_early();
+ }
+ 
+diff --git a/include/linux/interrupt.h b/include/linux/interrupt.h
+index be7e75c9..f868e88f 100644
+--- a/include/linux/interrupt.h
++++ b/include/linux/interrupt.h
+@@ -405,16 +405,18 @@ extern bool force_irqthreads;
+ 
+ enum
+ {
+-	HI_SOFTIRQ=0,
+-	TIMER_SOFTIRQ,
+-	NET_TX_SOFTIRQ,
+-	NET_RX_SOFTIRQ,
+-	BLOCK_SOFTIRQ,
+-	BLOCK_IOPOLL_SOFTIRQ,
+-	TASKLET_SOFTIRQ,
+-	SCHED_SOFTIRQ,
++	HI_SOFTIRQ=0,//高优先级软中断
++	TIMER_SOFTIRQ,//定时器软中断
++	NET_TX_SOFTIRQ, //网络发送软中断，回收发送内存
++	NET_RX_SOFTIRQ, //接收软中断
++	BLOCK_SOFTIRQ,  //块设备软中断
++	BLOCK_IOPOLL_SOFTIRQ, //块设备poll软中断
++	TASKLET_SOFTIRQ, //tasklet软中断
++	SCHED_SOFTIRQ, //调度软中断
++	//高精度时钟软中断，未用
+ 	HRTIMER_SOFTIRQ, /* Unused, but kept as tools rely on the
+ 			    numbering. Sigh! */
++	//RCU软中断
+ 	RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */
+ 
+ 	NR_SOFTIRQS
+diff --git a/include/linux/ktime.h b/include/linux/ktime.h
+index 2b6a204b..be20255f 100644
+--- a/include/linux/ktime.h
++++ b/include/linux/ktime.h
+@@ -34,6 +34,7 @@
+  * operations.
+  *
+  */
++//用于高精度定时器，以纳秒为单位
+ union ktime {
+ 	s64	tv64;
+ };
+diff --git a/init/main.c b/init/main.c
+index 4d6bec8d..822744eb 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -503,6 +503,7 @@ static void __init mm_init(void)
+ 	kmem_cache_init();
+ 	percpu_init_late();
+ 	pgtable_init();
++	//初始化vmalloc用到的数据结构
+ 	vmalloc_init();
+ 	ioremap_huge_init();
+ }
+@@ -603,6 +604,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	setup_log_buf(0);
+ 	//进程pid管理用到的数据结构初始化。
+ 	pidhash_init();
++	//初始化目录项和索引节点缓存
+ 	vfs_caches_init_early();
+ 	//对异常表进行排序，以减少异常修复入口的查找时间
+ 	sort_main_extable();
+@@ -644,17 +646,26 @@ asmlinkage __visible void __init start_kernel(void)
+ 	 */
+ 	tick_init();
+ 	rcu_init_nohz();
++	//初始化计时器
+ 	init_timers();
++	//高分辨率时钟初始化。
+ 	hrtimers_init();
++	//软中断初始化
+ 	softirq_init();
++	//初始化xtime
+ 	timekeeping_init();
++	//初始化硬件时钟并设置计时器，注册处理函数。
+ 	time_init();
++	//调度器使用的时间系统初始化。
+ 	sched_clock_postinit();
++	//剖析相关的初始化。
+ 	perf_event_init();
+ 	profile_init();
++	//smp中，为管理核间回调函数的初始化。
+ 	call_function_init();
+ 	WARN(!irqs_disabled(), "Interrupts were enabled early\n");
+ 	early_boot_irqs_disabled = false;
++	//中断已经初始化完毕，现在要开启控制台了，打开中断。
+ 	local_irq_enable();
+ 
+ 	kmem_cache_init_late();
+@@ -664,11 +675,13 @@ asmlinkage __visible void __init start_kernel(void)
+ 	 * we've done PCI setups etc, and console_init() must be aware of
+ 	 * this. But we do want output early, in case something goes wrong.
+ 	 */
++	//初始化控制台。
+ 	console_init();
+ 	if (panic_later)
+ 		panic("Too many boot %s vars at `%s'", panic_later,
+ 		      panic_param);
+ 
++	//输出锁依赖信息
+ 	lockdep_info();
+ 
+ 	/*
+@@ -676,7 +689,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	 * to self-test [hard/soft]-irqs on/off lock inversion bugs
+ 	 * too:
+ 	 */
+-	locking_selftest();
++	locking_selftest();//测试锁依赖模块
+ 
+ #ifdef CONFIG_BLK_DEV_INITRD
+ 	if (initrd_start && !initrd_below_start_ok &&
+@@ -721,6 +734,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	page_writeback_init();
+ 	proc_root_init();
+ 	nsfs_init();
++	//初始化cpuset子系统。
+ 	cpuset_init();
+ 	cgroup_init();
+ 	taskstats_init_early();
+diff --git a/kernel/cpuset.c b/kernel/cpuset.c
+index f0acff0f..aeef14e8 100644
+--- a/kernel/cpuset.c
++++ b/kernel/cpuset.c
+@@ -2065,11 +2065,13 @@ int __init cpuset_init(void)
+ {
+ 	int err = 0;
+ 
++	//为顶层cpuset分配位图内存
+ 	if (!alloc_cpumask_var(&top_cpuset.cpus_allowed, GFP_KERNEL))
+ 		BUG();
+ 	if (!alloc_cpumask_var(&top_cpuset.effective_cpus, GFP_KERNEL))
+ 		BUG();
+ 
++	//将顶层cpuset设置为所有CPU
+ 	cpumask_setall(top_cpuset.cpus_allowed);
+ 	nodes_setall(top_cpuset.mems_allowed);
+ 	cpumask_setall(top_cpuset.effective_cpus);
+@@ -2079,6 +2081,7 @@ int __init cpuset_init(void)
+ 	set_bit(CS_SCHED_LOAD_BALANCE, &top_cpuset.flags);
+ 	top_cpuset.relax_domain_level = -1;
+ 
++	//这个还整一个文件系统???
+ 	err = register_filesystem(&cpuset_fs_type);
+ 	if (err < 0)
+ 		return err;
+diff --git a/kernel/sched/clock.c b/kernel/sched/clock.c
+index c0a20510..730105d3 100644
+--- a/kernel/sched/clock.c
++++ b/kernel/sched/clock.c
+@@ -142,11 +142,14 @@ static inline struct sched_clock_data *cpu_sdc(int cpu)
+ 	return &per_cpu(sched_clock_data, cpu);
+ }
+ 
++//初始化调度时钟
+ void sched_clock_init(void)
+ {
++	//获得当前单调时间
+ 	u64 ktime_now = ktime_to_ns(ktime_get());
+ 	int cpu;
+ 
++	//为每个CPU设置其调度相关的时间
+ 	for_each_possible_cpu(cpu) {
+ 		struct sched_clock_data *scd = cpu_sdc(cpu);
+ 
+@@ -155,6 +158,7 @@ void sched_clock_init(void)
+ 		scd->clock = ktime_now;
+ 	}
+ 
++	//调度时钟生效
+ 	sched_clock_running = 1;
+ 
+ 	/*
+@@ -395,6 +399,7 @@ u64 local_clock(void)
+ 
+ void sched_clock_init(void)
+ {
++	//表示调度时钟已经生效
+ 	sched_clock_running = 1;
+ }
+ 
+diff --git a/kernel/softirq.c b/kernel/softirq.c
+index 479e4436..89f0c6bb 100644
+--- a/kernel/softirq.c
++++ b/kernel/softirq.c
+@@ -631,10 +631,14 @@ void tasklet_hrtimer_init(struct tasklet_hrtimer *ttimer,
+ }
+ EXPORT_SYMBOL_GPL(tasklet_hrtimer_init);
+ 
++/**
++ * 初始化软中断
++ */
+ void __init softirq_init(void)
+ {
+ 	int cpu;
+ 
++	//初始化每CPU上的高级、普通tasklet链表
+ 	for_each_possible_cpu(cpu) {
+ 		per_cpu(tasklet_vec, cpu).tail =
+ 			&per_cpu(tasklet_vec, cpu).head;
+@@ -642,6 +646,7 @@ void __init softirq_init(void)
+ 			&per_cpu(tasklet_hi_vec, cpu).head;
+ 	}
+ 
++	//注册tasklet软中断
+ 	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
+ 	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
+ }
+diff --git a/kernel/time/hrtimer.c b/kernel/time/hrtimer.c
+index 457a373e..b92b391e 100644
+--- a/kernel/time/hrtimer.c
++++ b/kernel/time/hrtimer.c
+@@ -1690,10 +1690,15 @@ static struct notifier_block hrtimers_nb = {
+ 	.notifier_call = hrtimer_cpu_notify,
+ };
+ 
++/**
++ * 初始化高分辨率定时器。
++ */
+ void __init hrtimers_init(void)
+ {
++	//为当前CPU执行HR初始化
+ 	hrtimer_cpu_notify(&hrtimers_nb, (unsigned long)CPU_UP_PREPARE,
+ 			  (void *)(long)smp_processor_id());
++	//注册CPU热插拨事件回调
+ 	register_cpu_notifier(&hrtimers_nb);
+ }
+ 
+diff --git a/kernel/time/timekeeping.c b/kernel/time/timekeeping.c
+index 44d2cc04..268fb093 100644
+--- a/kernel/time/timekeeping.c
++++ b/kernel/time/timekeeping.c
+@@ -1204,10 +1204,14 @@ void __weak read_boot_clock64(struct timespec64 *ts)
+ static bool sleeptime_injected;
+ 
+ /* Flag for if there is a persistent clock on this platform */
++//是否有持久的时钟源
+ static bool persistent_clock_exists;
+ 
+ /*
+- * timekeeping_init - Initializes the clocksource and common timekeeping values
++ * timekeeping_init - Initializes the clocksource and common  values
++ */
++/**
++ * 初始化时钟源及timekeeping相关的变量
+  */
+ void __init timekeeping_init(void)
+ {
+@@ -1216,15 +1220,17 @@ void __init timekeeping_init(void)
+ 	unsigned long flags;
+ 	struct timespec64 now, boot, tmp;
+ 
++	//读入时钟值，当前只有omap架构实现了。
+ 	read_persistent_clock64(&now);
+-	if (!timespec64_valid_strict(&now)) {
++	if (!timespec64_valid_strict(&now)) {//没有实现持久的时钟
+ 		pr_warn("WARNING: Persistent clock returned invalid value!\n"
+ 			"         Check your CMOS/BIOS settings.\n");
+ 		now.tv_sec = 0;
+ 		now.tv_nsec = 0;
+-	} else if (now.tv_sec || now.tv_nsec)
++	} else if (now.tv_sec || now.tv_nsec)//实现了，记录下来
+ 		persistent_clock_exists = true;
+ 
++	//同样只有omap实现了。
+ 	read_boot_clock64(&boot);
+ 	if (!timespec64_valid_strict(&boot)) {
+ 		pr_warn("WARNING: Boot clock returned invalid value!\n"
+@@ -1233,8 +1239,10 @@ void __init timekeeping_init(void)
+ 		boot.tv_nsec = 0;
+ 	}
+ 
++	//获得顺序锁及自旋锁
+ 	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+ 	write_seqcount_begin(&tk_core.seq);
++	//ntp初始化
+ 	ntp_init();
+ 
+ 	clock = clocksource_default_clock();
+diff --git a/kernel/time/timer.c b/kernel/time/timer.c
+index 84190f02..6c130b3a 100644
+--- a/kernel/time/timer.c
++++ b/kernel/time/timer.c
+@@ -1593,12 +1593,16 @@ static void migrate_timers(int cpu)
+ 	put_cpu_ptr(&tvec_bases);
+ }
+ 
++/**
++ * 定时器模块处理CPU热插拨事件的回调
++ */
+ static int timer_cpu_notify(struct notifier_block *self,
+ 				unsigned long action, void *hcpu)
+ {
+ 	switch (action) {
+ 	case CPU_DEAD:
+ 	case CPU_DEAD_FROZEN:
++		//CPU热插拨时迁移定时器到其他核上运行。
+ 		migrate_timers((long)hcpu);
+ 		break;
+ 	default:
+@@ -1635,11 +1639,16 @@ static void __init init_timer_cpus(void)
+ 		init_timer_cpu(cpu);
+ }
+ 
++/**
++ * 初始化定时器
++ */
+ void __init init_timers(void)
+ {
+ 	init_timer_cpus();
+ 	init_timer_stats();
++	//注册CPU事件，在CPU上线后执行定时器相关初始化。
+ 	timer_register_cpu_notifier();
++	//设置定时器软中断回调
+ 	open_softirq(TIMER_SOFTIRQ, run_timer_softirq);
+ }
+ 
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index be2c44ea..7681e466 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -6533,7 +6533,7 @@ __setup("hashdist=", set_hashdist);
+  */
+ void *__init alloc_large_system_hash(const char *tablename,
+ 				     unsigned long bucketsize,
+-				     unsigned long numentries,
++				     unsigned long numentries,//缓存项的个数
+ 				     int scale,
+ 				     int flags,
+ 				     unsigned int *_hash_shift,
+@@ -6546,12 +6546,12 @@ void *__init alloc_large_system_hash(const char *tablename,
+ 	void *table = NULL;
+ 
+ 	/* allow the kernel cmdline to have a say */
+-	if (!numentries) {
++	if (!numentries) {//传递的缓存项数目为0，由内核决定分配多少项
+ 		/* round applicable memory size up to nearest megabyte */
+ 		numentries = nr_kernel_pages;
+ 
+ 		/* It isn't necessary when PAGE_SIZE >= 1MB */
+-		if (PAGE_SHIFT < 20)
++		if (PAGE_SHIFT < 20)//每页小于1M，就根据内存有多少M来决定缓存项
+ 			numentries = round_up(numentries, (1<<20)/PAGE_SIZE);
+ 
+ 		/* limit to 1 bucket per 2^scale bytes of low memory */
+@@ -6561,7 +6561,7 @@ void *__init alloc_large_system_hash(const char *tablename,
+ 			numentries <<= (PAGE_SHIFT - scale);
+ 
+ 		/* Make sure we've got at least a 0-order allocation.. */
+-		if (unlikely(flags & HASH_SMALL)) {
++		if (unlikely(flags & HASH_SMALL)) {//至少分配一页
+ 			/* Makes no sense without HASH_EARLY */
+ 			WARN_ON(!(flags & HASH_EARLY));
+ 			if (!(numentries >> *_hash_shift)) {
+@@ -6587,6 +6587,7 @@ void *__init alloc_large_system_hash(const char *tablename,
+ 
+ 	log2qty = ilog2(numentries);
+ 
++	//根据情况从bootmem,vmalloc,伙伴系统中分配内存。感觉这段代码还是晦涩了一点。
+ 	do {
+ 		size = bucketsize << log2qty;
+ 		if (flags & HASH_EARLY)
+diff --git a/mm/vmalloc.c b/mm/vmalloc.c
+index 2faaa297..f04f7578 100644
+--- a/mm/vmalloc.c
++++ b/mm/vmalloc.c
+@@ -1195,10 +1195,12 @@ void __init vm_area_register_early(struct vm_struct *vm, size_t align)
+ 
+ void __init vmalloc_init(void)
+ {
++	//vmalloc用到的红黑树和链表对象
+ 	struct vmap_area *va;
+ 	struct vm_struct *tmp;
+ 	int i;
+ 
++	//对所有cpu上的每CPU变量vmap_block_queue进行初始化。
+ 	for_each_possible_cpu(i) {
+ 		struct vmap_block_queue *vbq;
+ 		struct vfree_deferred *p;
+@@ -1212,7 +1214,9 @@ void __init vmalloc_init(void)
+ 	}
+ 
+ 	/* Import existing vmlist entries. */
++	//遍历已经存在的vmlist
+ 	for (tmp = vmlist; tmp; tmp = tmp->next) {
++		//为这些节点构建红黑树
+ 		va = kzalloc(sizeof(struct vmap_area), GFP_NOWAIT);
+ 		va->flags = VM_VM_AREA;
+ 		va->va_start = (unsigned long)tmp->addr;
+-- 
+2.25.1
+

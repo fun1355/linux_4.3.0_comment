@@ -1,0 +1,472 @@
+From 0b5070bd990b93ddad1cde2cf8c4b5644a0891a7 Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Mon, 16 Nov 2015 11:44:23 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E4=B9=9D=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ include/linux/slab_def.h | 30 +++++++++++++++++++++++
+ init/main.c              |  3 +++
+ mm/slab.c                | 51 ++++++++++++++++++++++++++++++++++------
+ mm/slab.h                | 13 ++++++++++
+ mm/slab_common.c         | 18 +++++++++++++-
+ mm/slub.c                |  4 ++++
+ 6 files changed, 111 insertions(+), 8 deletions(-)
+
+diff --git a/include/linux/slab_def.h b/include/linux/slab_def.h
+index 33d04906..ca1dbbaf 100644
+--- a/include/linux/slab_def.h
++++ b/include/linux/slab_def.h
+@@ -7,40 +7,66 @@
+  * Definitions unique to the original Linux SLAB allocator.
+  */
+ 
++/**
++ * slab分配器描述符
++ */
+ struct kmem_cache {
++	/**
++	 * 为每个CPU缓存的临时对象，可以加快每个CPU上的分配过程
++	 * 类似于伙伴系统中的PCP
++	 */
+ 	struct array_cache __percpu *cpu_cache;
+ 
+ /* 1) Cache tunables. Protected by slab_mutex */
++	/**
++	 * 由slab_mutex保护
++	 * batchcount一次性向缓存中添加多少个对象
++	 * limit缓存对象数量限制
++	 */
+ 	unsigned int batchcount;
+ 	unsigned int limit;
+ 	unsigned int shared;
+ 
++	//slab头部大小??
+ 	unsigned int size;
++	//加快内部计算过程用的临时变量
+ 	struct reciprocal_value reciprocal_buffer_size;
+ /* 2) touched by every alloc & free from the backend */
+ 
++	//slab对象属性，如CFLGS_OFF_SLAB
+ 	unsigned int flags;		/* constant flags */
++	//每个slab中的对象个数
+ 	unsigned int num;		/* # of objs per slab */
+ 
+ /* 3) cache_grow/shrink */
+ 	/* order of pgs per slab (2^n) */
++	//扩充或者收缩slab时，分配或者释放的内存order。
+ 	unsigned int gfporder;
+ 
+ 	/* force GFP flags, e.g. GFP_DMA */
++	//分配内存的GFP标志，依赖于上层调用方式。
+ 	gfp_t allocflags;
+ 
++	//着色范围。
+ 	size_t colour;			/* cache colouring range */
++	//两次着色之间的差
+ 	unsigned int colour_off;	/* colour offset */
++	//当kmem_cache位于slab外面时，预先分配的kmem_cache对象指针及其数量。
+ 	struct kmem_cache *freelist_cache;
+ 	unsigned int freelist_size;
+ 
+ 	/* constructor func */
++	//分配slab时的回调
+ 	void (*ctor)(void *obj);
+ 
+ /* 4) cache creation/removal */
++	//显示在proc/slabinfo中的名称
+ 	const char *name;
++	//通过此字段将对象链接到cache_chain链表
+ 	struct list_head list;
++	//引用计数
+ 	int refcount;
++	//slab对象大小
+ 	int object_size;
+ 	int align;
+ 
+@@ -73,6 +99,10 @@ struct kmem_cache {
+ 	struct memcg_cache_params memcg_params;
+ #endif
+ 
++	/**
++	 * 按节点管理的kmem_cache_node描述符。
++	 * 每个kmem_cache_node管理空闲、满、可用slab
++	 */
+ 	struct kmem_cache_node *node[MAX_NUMNODES];
+ };
+ 
+diff --git a/init/main.c b/init/main.c
+index 286bec1e..94615d68 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -501,6 +501,9 @@ static void __init mm_init(void)
+ 	page_ext_init_flatmem();
+ 	//将boot内存管理转换为伙伴内存管理
+ 	mem_init();
++	/**
++	 * 初始化slab内存分配器
++	 */
+ 	kmem_cache_init();
+ 	percpu_init_late();
+ 	pgtable_init();
+diff --git a/mm/slab.c b/mm/slab.c
+index 4fcc5dd8..be167a30 100644
+--- a/mm/slab.c
++++ b/mm/slab.c
+@@ -186,11 +186,18 @@ static bool pfmemalloc_active __read_mostly;
+  * footprint.
+  *
+  */
++/**
++ * 每CPU中的slab缓存
++ */
+ struct array_cache {
++	/* 可用数量 */
+ 	unsigned int avail;
++	/* 最大对象数，多余的放回slab */
+ 	unsigned int limit;
++	/* 每次在slab缓存和slab中移入移出的数量 */
+ 	unsigned int batchcount;
+ 	unsigned int touched;
++	//slab对象地址
+ 	void *entry[];	/*
+ 			 * Must have this definition in here for the proper
+ 			 * alignment of array_cache. Also simplifies accessing
+@@ -256,12 +263,14 @@ static int slab_early_init = 1;
+ 
+ static void kmem_cache_node_init(struct kmem_cache_node *parent)
+ {
++	//初始化满、半满、空闲链表
+ 	INIT_LIST_HEAD(&parent->slabs_full);
+ 	INIT_LIST_HEAD(&parent->slabs_partial);
+ 	INIT_LIST_HEAD(&parent->slabs_free);
+ 	parent->shared = NULL;
+ 	parent->alien = NULL;
+ 	parent->colour_next = 0;
++	//初始化自旋锁
+ 	spin_lock_init(&parent->list_lock);
+ 	parent->free_objects = 0;
+ 	parent->free_touched = 0;
+@@ -474,15 +483,17 @@ static inline struct array_cache *cpu_cache_get(struct kmem_cache *cachep)
+ 	return this_cpu_ptr(cachep->cpu_cache);
+ }
+ 
++//计算每个页框中，管理结构的大小
+ static size_t calculate_freelist_size(int nr_objs, size_t align)
+ {
+ 	size_t freelist_size;
+ 
++	//内部索引链表的大小，其实是一个数组
+ 	freelist_size = nr_objs * sizeof(freelist_idx_t);
+-	if (IS_ENABLED(CONFIG_DEBUG_SLAB_LEAK))
++	if (IS_ENABLED(CONFIG_DEBUG_SLAB_LEAK))//调试信息
+ 		freelist_size += nr_objs * sizeof(char);
+ 
+-	if (align)
++	if (align)//对齐，这是需要的。
+ 		freelist_size = ALIGN(freelist_size, align);
+ 
+ 	return freelist_size;
+@@ -523,6 +534,9 @@ static int calculate_nr_objs(size_t slab_size, size_t buffer_size,
+ /*
+  * Calculate the number of objects and left-over bytes for a given buffer size.
+  */
++/**
++ * 计算扩展/缩小cache时，分配内存的order值
++ */
+ static void cache_estimate(unsigned long gfporder, size_t buffer_size,
+ 			   size_t align, int flags, size_t *left_over,
+ 			   unsigned int *num)
+@@ -545,15 +559,18 @@ static void cache_estimate(unsigned long gfporder, size_t buffer_size,
+ 	 * the slabs are all pages aligned, the objects will be at the
+ 	 * correct alignment when allocated.
+ 	 */
+-	if (flags & CFLGS_OFF_SLAB) {
+-		mgmt_size = 0;
+-		nr_objs = slab_size / buffer_size;
++	if (flags & CFLGS_OFF_SLAB) {//slab管理结构位于slab外
++		mgmt_size = 0; //管理信息位于slab页外
++		nr_objs = slab_size / buffer_size;//每个slab页帧能够管理的对象就是页帧大小除以每个对象的大小
+ 
+ 	} else {
++		//计算一个页帧能够管理的对象数量
+ 		nr_objs = calculate_nr_objs(slab_size, buffer_size,
+ 					sizeof(freelist_idx_t), align);
++		//管理结构的大小
+ 		mgmt_size = calculate_freelist_size(nr_objs, align);
+ 	}
++	//返回计算结果
+ 	*num = nr_objs;
+ 	*left_over = slab_size - nr_objs*buffer_size - mgmt_size;
+ }
+@@ -1393,6 +1410,9 @@ static void __init set_up_node(struct kmem_cache *cachep, int index)
+  * Initialisation.  Called after the page allocator have been initialised and
+  * before smp_init().
+  */
++/**
++ * 初始化slab内存分配器
++ */
+ void __init kmem_cache_init(void)
+ {
+ 	int i;
+@@ -1404,6 +1424,7 @@ void __init kmem_cache_init(void)
+ 	if (num_possible_nodes() == 1)
+ 		use_alien_caches = 0;
+ 
++	//对NUMA节点中的slab链表进行初始化。
+ 	for (i = 0; i < NUM_INIT_LISTS; i++)
+ 		kmem_cache_node_init(&init_kmem_cache_node[i]);
+ 
+@@ -1412,6 +1433,7 @@ void __init kmem_cache_init(void)
+ 	 * page orders on machines with more than 32MB of memory if
+ 	 * not overridden on the command line.
+ 	 */
++	//低端32M是DMA内存，如果内存小于32M，就不允许分配过大的页
+ 	if (!slab_max_order_set && totalram_pages > (32 << 20) >> PAGE_SHIFT)
+ 		slab_max_order = SLAB_MAX_ORDER_HI;
+ 
+@@ -1440,10 +1462,12 @@ void __init kmem_cache_init(void)
+ 	/*
+ 	 * struct kmem_cache size depends on nr_node_ids & nr_cpu_ids
+ 	 */
++	//初始化kmem_cache_boot，用于分配kmem_cache
+ 	create_boot_cache(kmem_cache, "kmem_cache",
+ 		offsetof(struct kmem_cache, node) +
+ 				  nr_node_ids * sizeof(struct kmem_cache_node *),
+ 				  SLAB_HWCACHE_ALIGN);
++	//将初始缓存加到全局链表中
+ 	list_add(&kmem_cache->list, &slab_caches);
+ 	slab_state = PARTIAL;
+ 
+@@ -1454,6 +1478,7 @@ void __init kmem_cache_init(void)
+ 	kmalloc_caches[INDEX_NODE] = create_kmalloc_cache("kmalloc-node",
+ 				kmalloc_size(INDEX_NODE), ARCH_KMALLOC_FLAGS);
+ 	slab_state = PARTIAL_NODE;
++	//初始化size_index表，用于小于192字节的内存分配。
+ 	setup_kmalloc_cache_index_table();
+ 
+ 	slab_early_init = 0;
+@@ -1470,6 +1495,7 @@ void __init kmem_cache_init(void)
+ 		}
+ 	}
+ 
++	//创建kmalloc需要的kmem_cache
+ 	create_kmalloc_caches(ARCH_KMALLOC_FLAGS);
+ }
+ 
+@@ -1935,6 +1961,9 @@ static void slabs_destroy(struct kmem_cache *cachep, struct list_head *list)
+  * high order pages for slabs.  When the gfp() functions are more friendly
+  * towards high-order requests, this should be changed.
+  */
++/**
++ * 计算一个slab分配内存时的使用的order
++ */
+ static size_t calculate_slab_order(struct kmem_cache *cachep,
+ 			size_t size, size_t align, unsigned long flags)
+ {
+@@ -2020,10 +2049,15 @@ static struct array_cache __percpu *alloc_kmem_cache_cpus(
+ 	return cpu_cache;
+ }
+ 
++/**
++ * 设置slab管理结构中的每CPU缓存数据
++ * 由于它需要动态分配内存，因此对初始的slab分配器要进行特殊的处理
++ * 有点微妙......
++ */
+ static int __init_refok setup_cpu_cache(struct kmem_cache *cachep, gfp_t gfp)
+ {
+-	if (slab_state >= FULL)
+-		return enable_cpucache(cachep, gfp);
++	if (slab_state >= FULL)//如果slab模块已经全部初始化，就简单了
++		return enable_cpucache(cachep, gfp);//直接分配内存并初始化即可。
+ 
+ 	cachep->cpu_cache = alloc_kmem_cache_cpus(cachep, 1, 1);
+ 	if (!cachep->cpu_cache)
+@@ -2228,6 +2262,7 @@ __kmem_cache_create (struct kmem_cache *cachep, unsigned long flags)
+ 	if (FREELIST_BYTE_INDEX && size < SLAB_OBJ_MIN_SIZE)
+ 		size = ALIGN(SLAB_OBJ_MIN_SIZE, cachep->align);
+ 
++	//计算页面分配的order数量
+ 	left_over = calculate_slab_order(cachep, size, cachep->align, flags);
+ 
+ 	if (!cachep->num)
+@@ -2283,6 +2318,7 @@ __kmem_cache_create (struct kmem_cache *cachep, unsigned long flags)
+ 		BUG_ON(ZERO_OR_NULL_PTR(cachep->freelist_cache));
+ 	}
+ 
++	//设置该slab在每CPU上的缓存
+ 	err = setup_cpu_cache(cachep, gfp);
+ 	if (err) {
+ 		__kmem_cache_shutdown(cachep);
+@@ -3412,6 +3448,7 @@ static inline void __cache_free(struct kmem_cache *cachep, void *objp,
+  * Allocate an object from this cache.  The flags are only relevant
+  * if the cache has no available objects.
+  */
++//
+ void *kmem_cache_alloc(struct kmem_cache *cachep, gfp_t flags)
+ {
+ 	void *ret = slab_alloc(cachep, flags, _RET_IP_);
+diff --git a/mm/slab.h b/mm/slab.h
+index a3a967d7..55e10cdb 100644
+--- a/mm/slab.h
++++ b/mm/slab.h
+@@ -58,9 +58,11 @@ enum slab_state {
+ extern enum slab_state slab_state;
+ 
+ /* The slab cache mutex protects the management structures during changes */
++//保护slab管理结构的锁。
+ extern struct mutex slab_mutex;
+ 
+ /* The list of all slab caches on the system */
++//系统中所有slab链表头
+ extern struct list_head slab_caches;
+ 
+ /* The slab cache that manages slab cache information */
+@@ -339,19 +341,30 @@ static inline struct kmem_cache *cache_from_obj(struct kmem_cache *s, void *x)
+ /*
+  * The slab lists for all objects.
+  */
++/**
++ * 每个NUMA内存节点中的slab链表
++ */
+ struct kmem_cache_node {
++	//保存本描述符的自旋锁
+ 	spinlock_t list_lock;
+ 
+ #ifdef CONFIG_SLAB
++	//包含部分slab对象的slab链表
+ 	struct list_head slabs_partial;	/* partial list first, better asm code */
++	//全满链表
+ 	struct list_head slabs_full;
++	//空闲链表，可回收
+ 	struct list_head slabs_free;
++	//可分配的对象数
+ 	unsigned long free_objects;
+ 	unsigned int free_limit;
++	//当前节点的可用着色值
+ 	unsigned int colour_next;	/* Per-node cache coloring */
+ 	struct array_cache *shared;	/* shared per node */
+ 	struct alien_cache **alien;	/* on other nodes */
++	//用于回收
+ 	unsigned long next_reap;	/* updated without locking */
++	//是否用过slab
+ 	int free_touched;		/* updated without locking */
+ #endif
+ 
+diff --git a/mm/slab_common.c b/mm/slab_common.c
+index 5ce4faeb..943ea535 100644
+--- a/mm/slab_common.c
++++ b/mm/slab_common.c
+@@ -316,6 +316,7 @@ unsigned long calculate_alignment(unsigned long flags,
+ 	return ALIGN(align, sizeof(void *));
+ }
+ 
++//创建slab分配器的主函数
+ static struct kmem_cache *
+ do_kmem_cache_create(const char *name, size_t object_size, size_t size,
+ 		     size_t align, unsigned long flags, void (*ctor)(void *),
+@@ -325,10 +326,13 @@ do_kmem_cache_create(const char *name, size_t object_size, size_t size,
+ 	int err;
+ 
+ 	err = -ENOMEM;
++	//先分配一个kmem_cache管理结构
+ 	s = kmem_cache_zalloc(kmem_cache, GFP_KERNEL);
+ 	if (!s)
+ 		goto out;
+ 
++`
++	//初始化kmem_cache管理结构
+ 	s->name = name;
+ 	s->object_size = object_size;
+ 	s->size = size;
+@@ -339,11 +343,14 @@ do_kmem_cache_create(const char *name, size_t object_size, size_t size,
+ 	if (err)
+ 		goto out_free_cache;
+ 
++	//创建slab缓存
+ 	err = __kmem_cache_create(s, flags);
+ 	if (err)
+ 		goto out_free_cache;
+ 
++	//设置引用计数
+ 	s->refcount = 1;
++	//添加到全局链表中
+ 	list_add(&s->list, &slab_caches);
+ out:
+ 	if (err)
+@@ -380,6 +387,9 @@ out_free_cache:
+  * cacheline.  This can be beneficial if you're counting cycles as closely
+  * as davem.
+  */
++/**
++ * 创建cache
++ */
+ struct kmem_cache *
+ kmem_cache_create(const char *name, size_t size, size_t align,
+ 		  unsigned long flags, void (*ctor)(void *))
+@@ -388,12 +398,15 @@ kmem_cache_create(const char *name, size_t size, size_t align,
+ 	const char *cache_name;
+ 	int err;
+ 
++	//增加对热插拨相关数据结构的引用。
+ 	get_online_cpus();
+ 	get_online_mems();
+ 	memcg_get_cache_ids();
+ 
++	//获取锁，保护全局的slab链表。
+ 	mutex_lock(&slab_mutex);
+ 
++	//遍历链表，看看是否已经创建了同名的slab
+ 	err = kmem_cache_sanity_check(name, size);
+ 	if (err) {
+ 		s = NULL;	/* suppress uninit var warning */
+@@ -408,16 +421,19 @@ kmem_cache_create(const char *name, size_t size, size_t align,
+ 	 */
+ 	flags &= CACHE_CREATE_MASK;
+ 
++	//看看是否可以与已经创建的slab合并????臃肿复杂了吧:)
+ 	s = __kmem_cache_alias(name, size, align, flags, ctor);
+ 	if (s)
+ 		goto out_unlock;
+ 
++	//复制slab名称
+ 	cache_name = kstrdup_const(name, GFP_KERNEL);
+ 	if (!cache_name) {
+ 		err = -ENOMEM;
+ 		goto out_unlock;
+ 	}
+ 
++	//真正干活的在这里。
+ 	s = do_kmem_cache_create(cache_name, size, size,
+ 				 calculate_alignment(flags, align, size),
+ 				 flags, ctor, NULL, NULL);
+@@ -426,7 +442,7 @@ kmem_cache_create(const char *name, size_t size, size_t align,
+ 		kfree_const(cache_name);
+ 	}
+ 
+-out_unlock:
++out_unlock: //解锁,递减引用值
+ 	mutex_unlock(&slab_mutex);
+ 
+ 	memcg_put_cache_ids();
+diff --git a/mm/slub.c b/mm/slub.c
+index f614b5dc..e31b8897 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -2512,6 +2512,10 @@ static __always_inline void *slab_alloc(struct kmem_cache *s,
+ 	return slab_alloc_node(s, gfpflags, NUMA_NO_NODE, addr);
+ }
+ 
++/**
++ * 从一个kmem_cache中分配一个对象
++ * 在创建kmem_cache时，会从root kmem_cache中分配对象
++ */
+ void *kmem_cache_alloc(struct kmem_cache *s, gfp_t gfpflags)
+ {
+ 	void *ret = slab_alloc(s, gfpflags, _RET_IP_);
+-- 
+2.25.1
+

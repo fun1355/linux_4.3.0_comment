@@ -1,0 +1,349 @@
+From 8116a7d359be59d31111afb3fb6fe5a0dea4935d Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Tue, 24 Nov 2015 15:31:03 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E5=8D=81=E4=B8=89=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ drivers/base/init.c |  4 ++++
+ init/main.c         | 33 ++++++++++++++++++++++++++++++++-
+ kernel/cpuset.c     |  3 +++
+ kernel/fork.c       |  3 +++
+ kernel/kthread.c    | 29 ++++++++++++++++++++++++-----
+ kernel/sched/core.c | 11 +++++++++++
+ 6 files changed, 77 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/base/init.c b/drivers/base/init.c
+index 48c0e220..7a085e66 100644
+--- a/drivers/base/init.c
++++ b/drivers/base/init.c
+@@ -22,7 +22,9 @@ void __init driver_init(void)
+ {
+ 	/* These are the core pieces */
+ 	devtmpfs_init();
++	//在sysfs中生成devices,dev,block,char等目录。
+ 	devices_init();
++	//生成bus,system等目录。
+ 	buses_init();
+ 	classes_init();
+ 	firmware_init();
+@@ -31,7 +33,9 @@ void __init driver_init(void)
+ 	/* These are also core pieces, but must come after the
+ 	 * core core pieces.
+ 	 */
++	//sys/bus/platform
+ 	platform_bus_init();
++	//sys/devices/system/cpu
+ 	cpu_dev_init();
+ 	memory_dev_init();
+ 	container_dev_init();
+diff --git a/init/main.c b/init/main.c
+index 05427609..3df277fe 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -396,21 +396,30 @@ static noinline void __init_refok rest_init(void)
+ 	 * the init task will end up wanting to create kthreads, which, if
+ 	 * we schedule it before we create kthreadd, will OOPS.
+ 	 */
++	//生成init进程，kernel_init进程执行了很多初始化工作。
+ 	kernel_thread(kernel_init, NULL, CLONE_FS);
++	//初始化当前进程的内存策略。
+ 	numa_default_policy();
++	//生成kthreadd守护进程,用于生成内核线程的线程。
+ 	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES);
++	//在查找任务前，获得rcu读锁
+ 	rcu_read_lock();
++	//通过pid查找kthreadd线程结构。
+ 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
+ 	rcu_read_unlock();
++	//唤醒等待kthreadd线程创建消息的进程。
+ 	complete(&kthreadd_done);
+ 
+ 	/*
+ 	 * The boot idle thread must execute schedule()
+ 	 * at least once to get things moving:
+ 	 */
++	//设置当前线程的idle类线程
+ 	init_idle_bootup_task(current);
++	//调一下schedule函数
+ 	schedule_preempt_disabled();
+ 	/* Call into cpu_idle with preempt disabled */
++	//进入idle循环。
+ 	cpu_startup_entry(CPUHP_ONLINE);
+ }
+ 
+@@ -789,6 +798,7 @@ asmlinkage __visible void __init start_kernel(void)
+ 	ftrace_init();
+ 
+ 	/* Do the rest non-__init'ed, we're now alive */
++	//生成init进程和内核线程。
+ 	rest_init();
+ }
+ 
+@@ -985,12 +995,17 @@ static void __init do_initcalls(void)
+  */
+ static void __init do_basic_setup(void)
+ {
++	//初始化cpuset子系统的top_cpuset
+ 	cpuset_init_smp();
+ 	shmem_init();
++	//初始化linux设备驱动模型。
+ 	driver_init();
++	//proc/irq/*
+ 	init_irq_proc();
+ 	do_ctors();
++	//允许khelper工作队列生效，这个队列允许用户态为内核态执行一些辅助工作。
+ 	usermodehelper_enable();
++	//调用各子系统的初始化函数。
+ 	do_initcalls();
+ 	random_int_secret_init();
+ }
+@@ -1038,10 +1053,14 @@ static int try_to_run_init_process(const char *init_filename)
+ 
+ static noinline void __init kernel_init_freeable(void);
+ 
++/**
++ * 内核初始化，运行在线程上下文
++ */
+ static int __ref kernel_init(void *unused)
+ {
+ 	int ret;
+ 
++	//内核初始化，不必在主核上运行。
+ 	kernel_init_freeable();
+ 	/* need to finish all async __init code before freeing the memory */
+ 	async_synchronize_full();
+@@ -1052,6 +1071,7 @@ static int __ref kernel_init(void *unused)
+ 
+ 	flush_delayed_fput();
+ 
++	//根据boot参数，确定init进程是谁，并启动它。
+ 	if (ramdisk_execute_command) {
+ 		ret = run_init_process(ramdisk_execute_command);
+ 		if (!ret)
+@@ -1088,6 +1108,7 @@ static noinline void __init kernel_init_freeable(void)
+ 	/*
+ 	 * Wait until kthreadd is all set-up.
+ 	 */
++	//等待kthreadd线程初始化完毕。
+ 	wait_for_completion(&kthreadd_done);
+ 
+ 	/* Now the scheduler is fully set up and can do blocking allocations */
+@@ -1096,24 +1117,34 @@ static noinline void __init kernel_init_freeable(void)
+ 	/*
+ 	 * init can allocate pages on any node
+ 	 */
++	//允许当前进程在任何节点分配内存
+ 	set_mems_allowed(node_states[N_MEMORY]);
+ 	/*
+ 	 * init can run on any cpu.
+ 	 */
++	//允许进程运行在任何cpu中。
+ 	set_cpus_allowed_ptr(current, cpu_all_mask);
+ 
++	//保存能执行cad的进程id,安全方面的考虑。
+ 	cad_pid = task_pid(current);
+ 
++	//准备激活并使用其他CPU
+ 	smp_prepare_cpus(setup_max_cpus);
+ 
++	/**
++	 * 执行模块注册的初始化函数。
++	 * 这些函数主要是初始化多核间调度需要的队列。
++	 */
+ 	do_pre_smp_initcalls();
+ 	lockup_detector_init();
+ 
+ 	smp_init();
++	//SMP调度初始化函数。
+ 	sched_init_smp();
+ 
+ 	page_alloc_init_late();
+ 
++	//几个子系统的初始化。
+ 	do_basic_setup();
+ 
+ 	/* Open the /dev/console on the rootfs, this should never fail */
+@@ -1126,7 +1157,7 @@ static noinline void __init kernel_init_freeable(void)
+ 	 * check if there is an early userspace init.  If yes, let it do all
+ 	 * the work
+ 	 */
+-
++	//确定初始化进程名称
+ 	if (!ramdisk_execute_command)
+ 		ramdisk_execute_command = "/init";
+ 
+diff --git a/kernel/cpuset.c b/kernel/cpuset.c
+index aeef14e8..6d79481f 100644
+--- a/kernel/cpuset.c
++++ b/kernel/cpuset.c
+@@ -2341,13 +2341,16 @@ static struct notifier_block cpuset_track_online_nodes_nb = {
+  */
+ void __init cpuset_init_smp(void)
+ {
++	//更新topcpuset的cpu集合
+ 	cpumask_copy(top_cpuset.cpus_allowed, cpu_active_mask);
++	//可用的内存节点。
+ 	top_cpuset.mems_allowed = node_states[N_MEMORY];
+ 	top_cpuset.old_mems_allowed = top_cpuset.mems_allowed;
+ 
+ 	cpumask_copy(top_cpuset.effective_cpus, cpu_active_mask);
+ 	top_cpuset.effective_mems = node_states[N_MEMORY];
+ 
++	//注册内存热插拨回调函数。
+ 	register_hotmemory_notifier(&cpuset_track_online_nodes_nb);
+ }
+ 
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 163bc818..740589a8 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -1789,6 +1789,9 @@ long do_fork(unsigned long clone_flags,
+ /*
+  * Create a kernel thread.
+  */
++/**
++ * 创建内核线程
++ */
+ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
+ {
+ 	return _do_fork(flags|CLONE_VM|CLONE_UNTRACED, (unsigned long)fn,
+diff --git a/kernel/kthread.c b/kernel/kthread.c
+index 9ff173dc..2a7d1851 100644
+--- a/kernel/kthread.c
++++ b/kernel/kthread.c
+@@ -174,9 +174,13 @@ void kthread_parkme(void)
+ }
+ EXPORT_SYMBOL_GPL(kthread_parkme);
+ 
++/**
++ * 内核线程主函数。
++ */
+ static int kthread(void *_create)
+ {
+ 	/* Copy data: it's on kthread's stack */
++	//获得任务参数及主函数。
+ 	struct kthread_create_info *create = _create;
+ 	int (*threadfn)(void *data) = create->threadfn;
+ 	void *data = create->data;
+@@ -222,6 +226,9 @@ int tsk_fork_get_node(struct task_struct *tsk)
+ 	return NUMA_NO_NODE;
+ }
+ 
++/**
++ * 创建内核线程
++ */
+ static void create_kthread(struct kthread_create_info *create)
+ {
+ 	int pid;
+@@ -230,6 +237,7 @@ static void create_kthread(struct kthread_create_info *create)
+ 	current->pref_node_fork = create->node;
+ #endif
+ 	/* We want our own signal handler (we take no signals by default). */
++	//创建kthreadd线程
+ 	pid = kernel_thread(kthread, create, CLONE_FS | CLONE_FILES | SIGCHLD);
+ 	if (pid < 0) {
+ 		/* If user was SIGKILLed, I release the structure. */
+@@ -499,37 +507,48 @@ int kthread_stop(struct task_struct *k)
+ }
+ EXPORT_SYMBOL(kthread_stop);
+ 
++/**
++ * 内核线程守护线程
++ */
+ int kthreadd(void *unused)
+ {
++	//获得当前任务指针
+ 	struct task_struct *tsk = current;
+ 
+ 	/* Setup a clean context for our children to inherit. */
+-	set_task_comm(tsk, "kthreadd");
+-	ignore_signals(tsk);
++	set_task_comm(tsk, "kthreadd");//设置当前线程名称。
++	ignore_signals(tsk);//忽略所有信号
++	//允许在所有CPU上执行，允许在所有内存节点的分配内存。
+ 	set_cpus_allowed_ptr(tsk, cpu_all_mask);
+ 	set_mems_allowed(node_states[N_MEMORY]);
+ 
+ 	current->flags |= PF_NOFREEZE;
+ 
+ 	for (;;) {
++		//此状态可以信号唤醒
+ 		set_current_state(TASK_INTERRUPTIBLE);
+-		if (list_empty(&kthread_create_list))
++		if (list_empty(&kthread_create_list))//没有需要创建的内核线程，调度出去等待唤醒。
+ 			schedule();
++		//有需要创建的线程，置为运行态
+ 		__set_current_state(TASK_RUNNING);
+ 
+-		spin_lock(&kthread_create_lock);
+-		while (!list_empty(&kthread_create_list)) {
++		spin_lock(&kthread_create_lock);//获取自旋锁，可能有多个kthreadd线程在运行。
++		while (!list_empty(&kthread_create_list)) {//读取链表，找到所有需要创建的任务。
+ 			struct kthread_create_info *create;
+ 
++			//取出要创建的任务，并释放锁。
+ 			create = list_entry(kthread_create_list.next,
+ 					    struct kthread_create_info, list);
+ 			list_del_init(&create->list);
+ 			spin_unlock(&kthread_create_lock);
+ 
++			//创建内核线程
+ 			create_kthread(create);
+ 
++			//再次获取锁后，看是否还有任务需要创建。
+ 			spin_lock(&kthread_create_lock);
+ 		}
++		//没有了，继续睡
+ 		spin_unlock(&kthread_create_lock);
+ 	}
+ 
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 516653cf..6214bb9a 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -7242,6 +7242,9 @@ void __init sched_init_smp(void)
+ {
+ 	cpumask_var_t non_isolated_cpus;
+ 
++	/**
++	 * 为CPU隔离功能，及NUMA节点域分配存储空间。
++	 */
+ 	alloc_cpumask_var(&non_isolated_cpus, GFP_KERNEL);
+ 	alloc_cpumask_var(&fallback_doms, GFP_KERNEL);
+ 
+@@ -7252,20 +7255,28 @@ void __init sched_init_smp(void)
+ 	 * cpu masks are stable and all blatant races in the below code cannot
+ 	 * happen.
+ 	 */
++	//获取调度域的锁
+ 	mutex_lock(&sched_domains_mutex);
++	//初始化调度域。
+ 	init_sched_domains(cpu_active_mask);
++	//设置非隔离调度CPU
+ 	cpumask_andnot(non_isolated_cpus, cpu_possible_mask, cpu_isolated_map);
++	//至少将当前CPU设置为非隔离CPU
+ 	if (cpumask_empty(non_isolated_cpus))
+ 		cpumask_set_cpu(smp_processor_id(), non_isolated_cpus);
++	//释放锁
+ 	mutex_unlock(&sched_domains_mutex);
+ 
++	//注册热插拨回调函数
+ 	hotcpu_notifier(sched_domains_numa_masks_update, CPU_PRI_SCHED_ACTIVE);
+ 	hotcpu_notifier(cpuset_cpu_active, CPU_PRI_CPUSET_ACTIVE);
+ 	hotcpu_notifier(cpuset_cpu_inactive, CPU_PRI_CPUSET_INACTIVE);
+ 
++	//初始化hrtick，注册其热插拨回调
+ 	init_hrtick();
+ 
+ 	/* Move init over to a non-isolated CPU */
++	//设置当前任务可以运行的核，不能占用被隔离的CPU
+ 	if (set_cpus_allowed_ptr(current, non_isolated_cpus) < 0)
+ 		BUG();
+ 	sched_init_granularity();
+-- 
+2.25.1
+

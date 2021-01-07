@@ -1,0 +1,28 @@
+8fafb6b7	2017-10-30	loopio	添加原repo信息
+aff30029	2017-10-23	xie.baoyou	[comment-timer] ARN generic timer驱动
+b3f4a5fc	2017-10-23	xie.baoyou	[comment-timer] 时钟框架第二部分
+aaacd4ee	2017-10-21	xie.baoyou	[comment-timer] 时钟框架第一部分
+db73b0eb	2017-10-10	xie.baoyou	[comment-irq] irq框架第二部分，主要是GIC-V2相关代码
+332f66f3	2017-10-09	xie.baoyou	[comment-irq] irq框架第一部分
+8116a7d3	2015-11-24	xie.baoyou	[comment-arm] start_kernel第十三部分
+c146974e	2015-11-17	xie.baoyou	[comment-arm] start_kernel第十二部分
+2e2a7204	2015-11-17	xie.baoyou	[comment-arm] start_kernel第十一部分
+ae7f7b0c	2015-11-16	xie.baoyou	[comment-arm] start_kernel第十部分
+0b5070bd	2015-11-16	xie.baoyou	[comment-arm] start_kernel第九部分
+997ad5e3	2015-11-15	xie.baoyou	[comment-arm] start_kernel第八部分
+2f58c327	2015-11-15	xie.baoyou	[comment-arm] start_kernel第七部分
+f807025d	2015-11-14	xie.baoyou	[comment-arm] start_kernel第六部分
+366f9557	2015-11-14	xie.baoyou	[comment-arm] start_kernel第五部分
+60968a98	2015-11-13	xie.baoyou	[comment-arm] start_kernel第四部分
+1760794a	2015-11-12	xie.baoyou	[comment-arm] start_kernel第三部分
+fc97e7e2	2015-11-12	xie.baoyou	[comment-arm] start_kernel第二部分
+6046fc65	2015-11-12	xie.baoyou	[comment-arm] start_kernel第一部分
+40bcd006	2015-11-12	xie.baoyou	[comment-arm] 设置MMU并为start_kernel函数准备C运行环境
+a5072dc7	2015-11-11	xie.baoyou	[comment-arm] 解压内核并跳转到内核
+82733a3f	2015-11-11	xie.baoyou	[comment-arm] 解压准备
+290786dc	2015-11-11	xie.baoyou	[linux-4.3.0] linux-4.3.0原始版本，为了在windows下使用，删除了个别文件
+dd8e5ab1	2015-11-11	xie.baoyou	[linux-4.3.0] linux-4.3.0原始版本，为了在windows下使用，删除了个别文件
+4329a07d	2015-11-11	xie.baoyou	[linux-4.3.0] linux-4.3.0原始版本，为了在windows下使用，删除了个别文件
+d9342498	2015-11-11	xie.baoyou	[readme] 我的测试
+8db486cb	2015-11-11	xie.baoyou	[readme] æ·»å readme.txt
+4985864c	2015-11-11	xiebaoyou	First commit

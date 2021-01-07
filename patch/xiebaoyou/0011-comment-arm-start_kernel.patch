@@ -1,0 +1,987 @@
+From fc97e7e2a738e4a6b15738b0766b5fc125cb7dc3 Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Thu, 12 Nov 2015 19:06:20 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-arm]=20start=5Fkernel=E7=AC=AC?=
+ =?UTF-8?q?=E4=BA=8C=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ arch/arm/include/asm/entry-macro-multi.S | 12 ++++
+ arch/arm/kernel/atags_parse.c            | 28 ++++++---
+ arch/arm/kernel/entry-armv.S             | 80 ++++++++++++++++++++++++
+ arch/arm/kernel/entry-common.S           | 12 ++++
+ arch/arm/kernel/irq.c                    |  6 ++
+ arch/arm/kernel/setup.c                  | 32 +++++++++-
+ arch/arm/kernel/traps.c                  |  9 +++
+ arch/arm/mm/mmu.c                        | 21 +++++++
+ include/linux/bootmem.h                  |  3 +
+ include/linux/irqdesc.h                  |  4 ++
+ include/linux/notifier.h                 | 10 +++
+ init/main.c                              | 12 ++++
+ kernel/cpu.c                             | 11 ++++
+ kernel/irq/chip.c                        |  3 +
+ kernel/irq/irqdesc.c                     | 21 ++++++-
+ kernel/notifier.c                        |  7 +++
+ kernel/resource.c                        | 11 +++-
+ mm/bootmem.c                             | 19 ++++--
+ mm/highmem.c                             |  3 +
+ 19 files changed, 286 insertions(+), 18 deletions(-)
+
+diff --git a/arch/arm/include/asm/entry-macro-multi.S b/arch/arm/include/asm/entry-macro-multi.S
+index 609184f5..88b0220a 100644
+--- a/arch/arm/include/asm/entry-macro-multi.S
++++ b/arch/arm/include/asm/entry-macro-multi.S
+@@ -5,12 +5,24 @@
+  */
+ 	.macro	arch_irq_handler_default
+ 	get_irqnr_preamble r6, lr
++/**
++ * 获得中断编号
++ */
+ 1:	get_irqnr_and_base r0, r2, r6, lr
++/**
++ * 当前sp正好指向pt_regs
++ */
+ 	movne	r1, sp
+ 	@
+ 	@ routine called with r0 = irq number, r1 = struct pt_regs *
+ 	@
++/**
++ * 错误的中断就退出
++ */
+ 	badrne	lr, 1b
++/**
++ * 中断号正确，处理中断
++ */
+ 	bne	asm_do_IRQ
+ 
+ #ifdef CONFIG_SMP
+diff --git a/arch/arm/kernel/atags_parse.c b/arch/arm/kernel/atags_parse.c
+index 68c6ae0b..373416b0 100644
+--- a/arch/arm/kernel/atags_parse.c
++++ b/arch/arm/kernel/atags_parse.c
+@@ -190,23 +190,29 @@ setup_machine_tags(phys_addr_t __atags_pointer, unsigned int machine_nr)
+ 	/*
+ 	 * locate machine in the list of supported machines.
+ 	 */
++	/**
++	 * 遍历支持的描述符表
++	 */
+ 	for_each_machine_desc(p)
+-		if (machine_nr == p->nr) {
++		if (machine_nr == p->nr) {//匹配
+ 			pr_info("Machine: %s\n", p->name);
+ 			mdesc = p;
+ 			break;
+ 		}
+ 
+-	if (!mdesc) {
++	if (!mdesc) {//不支持的机器类型
+ 		early_print("\nError: unrecognized/unsupported machine ID"
+ 			    " (r1 = 0x%08x).\n\n", machine_nr);
+ 		dump_machine_table(); /* does not return */
+ 	}
+ 
++	/**
++	 * 获得生效的atags
++	 */
+ 	if (__atags_pointer)
+-		tags = phys_to_virt(__atags_pointer);
++		tags = phys_to_virt(__atags_pointer);//优先使用boot传过来的tags
+ 	else if (mdesc->atag_offset)
+-		tags = (void *)(PAGE_OFFSET + mdesc->atag_offset);
++		tags = (void *)(PAGE_OFFSET + mdesc->atag_offset);//否则使用机器信息结构体中的值。
+ 
+ #if defined(CONFIG_DEPRECATED_PARAM_STRUCT)
+ 	/*
+@@ -216,18 +222,24 @@ setup_machine_tags(phys_addr_t __atags_pointer, unsigned int machine_nr)
+ 	if (tags->hdr.tag != ATAG_CORE)
+ 		convert_to_tag_list(tags);
+ #endif
++	/**
++	 * 第一项必须是ATAG_CORE类型，然后是ATAG_MEM,ATAG_CMDLINE,ATAG_NONE等等
++	 * 如果不是，可能是严重的故障，使用默认的atags。
++	 */
+ 	if (tags->hdr.tag != ATAG_CORE) {
+ 		early_print("Warning: Neither atags nor dtb found\n");
+ 		tags = (struct tag *)&default_tags;
+ 	}
+ 
+-	if (mdesc->fixup)
++	if (mdesc->fixup)//先处理fixup
+ 		mdesc->fixup(tags, &from);
+ 
+-	if (tags->hdr.tag == ATAG_CORE) {
+-		if (memblock_phys_mem_size())
+-			squash_mem_tags(tags);
++	if (tags->hdr.tag == ATAG_CORE) {//atags有效
++		if (memblock_phys_mem_size())//如果fixup中已经处理了meminfo
++			squash_mem_tags(tags);//忽略atags中的ATAG_MEM
++		//复制一份atags
+ 		save_atags(tags);
++		//处理atags
+ 		parse_tags(tags);
+ 	}
+ 
+diff --git a/arch/arm/kernel/entry-armv.S b/arch/arm/kernel/entry-armv.S
+index 3e1c26eb..5fa10610 100644
+--- a/arch/arm/kernel/entry-armv.S
++++ b/arch/arm/kernel/entry-armv.S
+@@ -37,6 +37,9 @@
+ 
+ /*
+  * Interrupt handling.
++ */
++/**
++ * 调用C语言中的中断处理程序
+  */
+ 	.macro	irq_handler
+ #ifdef CONFIG_MULTI_IRQ_HANDLER
+@@ -208,20 +211,44 @@ __dabt_svc:
+ ENDPROC(__dabt_svc)
+ 
+ 	.align	5
++/**
++ * svc模式下的中断入口
++ */
+ __irq_svc:
++/**
++ * 保存中断前的内核态现场
++ */
+ 	svc_entry
++/**
++ * 处理中断
++ */
+ 	irq_handler
+ 
+ #ifdef CONFIG_PREEMPT
++/**
++ * 从r9中取当前线程的threadinfo
++ */
+ 	get_thread_info tsk
++/**
++ * 读抢占计数
++ */
+ 	ldr	r8, [tsk, #TI_PREEMPT]		@ get preempt count
+ 	ldr	r0, [tsk, #TI_FLAGS]		@ get flags
++/**
++ * ???
++ */
+ 	teq	r8, #0				@ if preempt count != 0
+ 	movne	r0, #0				@ force flags to 0
++/**
++ * 如果需要抢占调度，则进行抢占。
++ */
+ 	tst	r0, #_TIF_NEED_RESCHED
+ 	blne	svc_preempt
+ #endif
+ 
++/**
++ * 这里的恢复过程有点不一样，返回到上一层异常。
++ */
+ 	svc_exit r5, irq = 1			@ return from exception
+  UNWIND(.fnend		)
+ ENDPROC(__irq_svc)
+@@ -453,11 +480,26 @@ __dabt_usr:
+ ENDPROC(__dabt_usr)
+ 
+ 	.align	5
++/**
++ * usr模式下的中断入口
++ */
+ __irq_usr:
++/**
++ * 将用户模式的上下文保存到svc模式的栈中
++ */
+ 	usr_entry
++/**
++ * 如果在用户态下处理原子操作，此时需要特殊处理。
++ */
+ 	kuser_cmpxchg_check
+ 	irq_handler
++/**
++ * 从r9中取得当前进程的threadinfo
++ */
+ 	get_thread_info tsk
++/**
++ * 返回用户态
++ */
+ 	mov	why, #0
+ 	b	ret_to_user_from_irq
+  UNWIND(.fnend		)
+@@ -1050,11 +1092,17 @@ __kuser_helper_end:
+  *
+  * SP points to a minimal amount of processor-private memory, the address
+  * of which is copied into r0 for the mode specific abort handler.
++ */
++/**
++ * correction是异常地址与返回地址之间的修正量。
+  */
+ 	.macro	vector_stub, name, mode, correction=0
+ 	.align	5
+ 
+ vector_\name:
++/**
++ * 调整返回值
++ */
+ 	.if \correction
+ 	sub	lr, lr, #\correction
+ 	.endif
+@@ -1063,13 +1111,24 @@ vector_\name:
+ 	@ Save r0, lr_<exception> (parent PC) and spsr_<exception>
+ 	@ (parent CPSR)
+ 	@
++/**
++ * 保存r0,lr,和spsr
++ * 注意堆栈空间只有几个字节，以后应该会再切换堆栈的。
++ */
+ 	stmia	sp, {r0, lr}		@ save r0, lr
++/**
++ * 后四位应该是异常时CPU所处的模式
++ */
+ 	mrs	lr, spsr
+ 	str	lr, [sp, #8]		@ save spsr
+ 
+ 	@
+ 	@ Prepare for SVC32 mode.  IRQs remain disabled.
+ 	@
++/**
++ * 仍然禁用中断。
++ * 准备进入SVC模式。
++ */
+ 	mrs	r0, cpsr
+ 	eor	r0, r0, #(\mode ^ SVC_MODE | PSR_ISETSTATE)
+ 	msr	spsr_cxsf, r0
+@@ -1077,11 +1136,21 @@ vector_\name:
+ 	@
+ 	@ the branch table must immediately follow this code
+ 	@
++/**
++ * 异常时CPU所处的模式
++ */
+ 	and	lr, lr, #0x0f
+  THUMB(	adr	r0, 1f			)
+  THUMB(	ldr	lr, [r0, lr, lsl #2]	)
+ 	mov	r0, sp
++/**
++ * pc应该正好指向随后的label，加上CPU模式，lr中正好保存了异常入口函数。
++ */
+  ARM(	ldr	lr, [pc, lr, lsl #2]	)
++ /**
++  * 将lr的值加载到pc，并将spsr值复制到cpsr。
++  * 跳转到异常入口，如__irq_usr
++  */
+ 	movs	pc, lr			@ branch to handler in SVC mode
+ ENDPROC(vector_\name)
+ 
+@@ -1106,6 +1175,10 @@ vector_rst:
+  */
+ 	vector_stub	irq, IRQ_MODE, 4
+ 
++/**
++ * 各种模式下的中断入口
++ * linux只使用了usr和svc下的中断，其他模式均为错误模式
++ */
+ 	.long	__irq_usr			@  0  (USR_26 / USR_32)
+ 	.long	__irq_invalid			@  1  (FIQ_26 / FIQ_32)
+ 	.long	__irq_invalid			@  2  (IRQ_26 / IRQ_32)
+@@ -1129,6 +1202,9 @@ vector_rst:
+  */
+ 	vector_stub	dabt, ABT_MODE, 8
+ 
++/**
++ * 各种模式下的dabt入口
++ */
+ 	.long	__dabt_usr			@  0  (USR_26 / USR_32)
+ 	.long	__dabt_invalid			@  1  (FIQ_26 / FIQ_32)
+ 	.long	__dabt_invalid			@  2  (IRQ_26 / IRQ_32)
+@@ -1233,6 +1309,10 @@ vector_addrexcptn:
+ 	.equ	vector_fiq_offset, vector_fiq
+ 
+ 	.section .vectors, "ax", %progbits
++/**
++ * 复制到向量地址表中的代码，各种中断和异常的处理入口。
++ * 这些代码由vector_stub生成
++ */
+ __vectors_start:
+ 	W(b)	vector_rst
+ 	W(b)	vector_und
+diff --git a/arch/arm/kernel/entry-common.S b/arch/arm/kernel/entry-common.S
+index 30a7228e..baf85971 100644
+--- a/arch/arm/kernel/entry-common.S
++++ b/arch/arm/kernel/entry-common.S
+@@ -91,8 +91,14 @@ ENDPROC(ret_fast_syscall)
+  */
+ ENTRY(ret_to_user)
+ ret_slow_syscall:
++/**
++ * 在中断处理流程中，可能打开了中断。此处关闭
++ */
+ 	disable_irq_notrace			@ disable interrupts
+ ENTRY(ret_to_user_from_irq)
++/**
++ * 处理抢占调度、信号等等
++ */
+ 	ldr	r1, [tsk, #TI_FLAGS]
+ 	tst	r1, #_TIF_WORK_MASK
+ 	bne	slow_work_pending
+@@ -100,9 +106,15 @@ no_work_pending:
+ 	asm_trace_hardirqs_on save = 0
+ 
+ 	/* perform architecture specific actions before user return */
++/**
++ * 只有特殊架构才会在此处理
++ */
+ 	arch_ret_to_user r1, lr
+ 	ct_user_enter save = 0
+ 
++/**
++ * 恢复寄存器。
++ */
+ 	restore_user_regs fast = 0, offset = 0
+ ENDPROC(ret_to_user_from_irq)
+ ENDPROC(ret_to_user)
+diff --git a/arch/arm/kernel/irq.c b/arch/arm/kernel/irq.c
+index 2766183e..daa5d1ed 100644
+--- a/arch/arm/kernel/irq.c
++++ b/arch/arm/kernel/irq.c
+@@ -65,6 +65,9 @@ int arch_show_interrupts(struct seq_file *p, int prec)
+  * own 'handler'.  Used by platform code implementing C-based 1st
+  * level decoding.
+  */
++/**
++ * 中断处理，中断号由平台相关的代码进行解析。
++ */
+ void handle_IRQ(unsigned int irq, struct pt_regs *regs)
+ {
+ 	__handle_domain_irq(NULL, irq, false, regs);
+@@ -73,6 +76,9 @@ void handle_IRQ(unsigned int irq, struct pt_regs *regs)
+ /*
+  * asm_do_IRQ is the interface to be used from assembly code.
+  */
++/**
++ * 从汇编语言中调用此函数处理中断。
++ */
+ asmlinkage void __exception_irq_entry
+ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
+ {
+diff --git a/arch/arm/kernel/setup.c b/arch/arm/kernel/setup.c
+index b190937c..344ab41d 100644
+--- a/arch/arm/kernel/setup.c
++++ b/arch/arm/kernel/setup.c
+@@ -453,6 +453,7 @@ static void __init elf_hwcap_fixup(void)
+ void notrace cpu_init(void)
+ {
+ #ifndef CONFIG_CPU_V7M
++	//取当前CPU的堆栈
+ 	unsigned int cpu = smp_processor_id();
+ 	struct stack *stk = &stacks[cpu];
+ 
+@@ -482,6 +483,9 @@ void notrace cpu_init(void)
+ 	/*
+ 	 * setup stacks for re-entrant exception handlers
+ 	 */
++	/**
++	 * 设置各种异常和中断的堆栈入口。
++	 */
+ 	__asm__ (
+ 	"msr	cpsr_c, %1\n\t"
+ 	"add	r14, %0, %2\n\t"
+@@ -660,6 +664,9 @@ static void __init setup_processor(void)
+ 	elf_hwcap_fixup();
+ 
+ 	cacheid_init();
++	/**
++	 * 初始化CPU在各种模式下使用的栈空间
++	 */
+ 	cpu_init();
+ }
+ 
+@@ -772,25 +779,34 @@ static int __init early_mem(char *p)
+ }
+ early_param("mem", early_mem);
+ 
++/**
++ * 将不依赖于机器的内存、设备端口资源注册到/proc/iomem中
++ */
+ static void __init request_standard_resources(const struct machine_desc *mdesc)
+ {
+ 	struct memblock_region *region;
+ 	struct resource *res;
+ 
++	//内核代码段、数据段区间
+ 	kernel_code.start   = virt_to_phys(_text);
+ 	kernel_code.end     = virt_to_phys(_etext - 1);
+ 	kernel_data.start   = virt_to_phys(_sdata);
+ 	kernel_data.end     = virt_to_phys(_end - 1);
+ 
++	//遍历所有内存块
+ 	for_each_memblock(memory, region) {
++		//分配内存，保存资源描述信息
+ 		res = memblock_virt_alloc(sizeof(*res), 0);
++		//填充资源信息
+ 		res->name  = "System RAM";
+ 		res->start = __pfn_to_phys(memblock_region_memory_base_pfn(region));
+ 		res->end = __pfn_to_phys(memblock_region_memory_end_pfn(region)) - 1;
+ 		res->flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+ 
++		//将资源信息记录到iomem_resource中
+ 		request_resource(&iomem_resource, res);
+ 
++		//如果内核代码段、数据段位于该区间，则将其记录为子区间。
+ 		if (kernel_code.start >= res->start &&
+ 		    kernel_code.end <= res->end)
+ 			request_resource(res, &kernel_code);
+@@ -799,7 +815,7 @@ static void __init request_standard_resources(const struct machine_desc *mdesc)
+ 			request_resource(res, &kernel_data);
+ 	}
+ 
+-	if (mdesc->video_start) {
++	if (mdesc->video_start) {//如果有video缓冲区，则将它记录下来
+ 		video_ram.start = mdesc->video_start;
+ 		video_ram.end   = mdesc->video_end;
+ 		request_resource(&iomem_resource, &video_ram);
+@@ -809,7 +825,7 @@ static void __init request_standard_resources(const struct machine_desc *mdesc)
+ 	 * Some machines don't have the possibility of ever
+ 	 * possessing lp0, lp1 or lp2
+ 	 */
+-	if (mdesc->reserve_lp0)
++	if (mdesc->reserve_lp0)//将lp0,lp1,lp2用到的端口区间也记录下来。
+ 		request_resource(&ioport_resource, &lp0);
+ 	if (mdesc->reserve_lp1)
+ 		request_resource(&ioport_resource, &lp1);
+@@ -938,11 +954,16 @@ void __init hyp_mode_check(void)
+ #endif
+ }
+ 
++/**
++ * 体系架构相关的初始化。
++ */
+ void __init setup_arch(char **cmdline_p)
+ {
+ 	const struct machine_desc *mdesc;
+ 
++	//设置CPU处理器
+ 	setup_processor();
++	//设置机器，如果boot传递了dtb给内核的话，就根据指示进行初始化。
+ 	mdesc = setup_machine_fdt(__atags_pointer);
+ 	if (!mdesc)
+ 		mdesc = setup_machine_tags(__atags_pointer, __machine_arch_type);
+@@ -965,6 +986,7 @@ void __init setup_arch(char **cmdline_p)
+ 	if (IS_ENABLED(CONFIG_FIX_EARLYCON_MEM))
+ 		early_fixmap_init();
+ 
++	//解析命令行参数，第一次解析
+ 	parse_early_param();
+ 
+ #ifdef CONFIG_MMU
+@@ -974,7 +996,9 @@ void __init setup_arch(char **cmdline_p)
+ 	sanity_check_meminfo();
+ 	arm_memblock_init(mdesc);
+ 
++	//分页初始化。
+ 	paging_init(mdesc);
++	//将初始化阶段发现的内存、端口等地址空间资源添加到资源树中。
+ 	request_standard_resources(mdesc);
+ 
+ 	if (mdesc->restart)
+@@ -986,13 +1010,15 @@ void __init setup_arch(char **cmdline_p)
+ 	psci_dt_init();
+ 	xen_early_init();
+ #ifdef CONFIG_SMP
++	//虽然配置了SMP，但是仍然有可能运行在单核上。
+ 	if (is_smp()) {
+-		if (!mdesc->smp_init || !mdesc->smp_init()) {
++		if (!mdesc->smp_init || !mdesc->smp_init()) {//运行smp_init
+ 			if (psci_smp_available())
+ 				smp_set_ops(&psci_smp_ops);
+ 			else if (mdesc->smp)
+ 				smp_set_ops(mdesc->smp);
+ 		}
++		//调用回调初始化CPU
+ 		smp_init_cpus();
+ 		smp_build_mpidr_hash();
+ 	}
+diff --git a/arch/arm/kernel/traps.c b/arch/arm/kernel/traps.c
+index 969f9d9e..4546946a 100644
+--- a/arch/arm/kernel/traps.c
++++ b/arch/arm/kernel/traps.c
+@@ -840,10 +840,15 @@ static inline void __init kuser_init(void *vectors)
+ }
+ #endif
+ 
++/**
++ * 初始化异常，复制异常向量表相关的代码。
++ */
+ void __init early_trap_init(void *vectors_base)
+ {
+ #ifndef CONFIG_CPU_V7M
++	//异常向量表基地址，可能为0或者0xffff0000
+ 	unsigned long vectors = (unsigned long)vectors_base;
++	//向异常处理入口汇编代码地址。需要复制。
+ 	extern char __stubs_start[], __stubs_end[];
+ 	extern char __vectors_start[], __vectors_end[];
+ 	unsigned i;
+@@ -856,6 +861,7 @@ void __init early_trap_init(void *vectors_base)
+ 	 * ISAs.  The Thumb version is an undefined instruction with a
+ 	 * branch back to the undefined instruction.
+ 	 */
++	//首先对向量表地址页进行内存毒化。
+ 	for (i = 0; i < PAGE_SIZE / sizeof(u32); i++)
+ 		((u32 *)vectors_base)[i] = 0xe7fddef1;
+ 
+@@ -864,11 +870,14 @@ void __init early_trap_init(void *vectors_base)
+ 	 * into the vector page, mapped at 0xffff0000, and ensure these
+ 	 * are visible to the instruction stream.
+ 	 */
++	//将entry-armv.S中处理中断和异常的汇编代码复制过来
+ 	memcpy((void *)vectors, __vectors_start, __vectors_end - __vectors_start);
+ 	memcpy((void *)vectors + 0x1000, __stubs_start, __stubs_end - __stubs_start);
+ 
++	//从__kuser_helper_start复制代码，包括kuser_memory_barrier，kernel_cmpxchg等等代码。
+ 	kuser_init(vectors_base);
+ 
++	//清空指令缓存
+ 	flush_icache_range(vectors, vectors + PAGE_SIZE * 2);
+ #else /* ifndef CONFIG_CPU_V7M */
+ 	/*
+diff --git a/arch/arm/mm/mmu.c b/arch/arm/mm/mmu.c
+index 7cd15143..0894d1e6 100644
+--- a/arch/arm/mm/mmu.c
++++ b/arch/arm/mm/mmu.c
+@@ -1276,6 +1276,9 @@ static void __init devicemaps_init(const struct machine_desc *mdesc)
+ 	 */
+ 	vectors = early_alloc(PAGE_SIZE * 2);
+ 
++	/**
++	 * 将中断和异常处理代码入口复制到向量表中。
++	 */
+ 	early_trap_init(vectors);
+ 
+ 	/*
+@@ -1566,27 +1569,45 @@ static void __init early_fixmap_shutdown(void)
+  * paging_init() sets up the page tables, initialises the zone memory
+  * maps, and sets up the zero page, bad page and bad page tables.
+  */
++/**
++ * 初始化分页
++ */
+ void __init paging_init(const struct machine_desc *mdesc)
+ {
+ 	void *zero_page;
+ 
++	/**
++	 * 根据ARM CPU版本及内存类型对mem_type结构体进行初始化。
++	 */
+ 	build_mem_type_table();
++	//准备页表
+ 	prepare_page_table();
+ 	map_lowmem();
+ 	memblock_set_current_limit(arm_lowmem_limit);
+ 	dma_contiguous_remap();
+ 	early_fixmap_shutdown();
++	/**
++	 * 对设备需要的内存区和向量表进行初始化。
++	 */
+ 	devicemaps_init(mdesc);
++	/**
++	 * 对kmap区域进行初始化。
++	 * 分配kmap需要的页表项。
++	 */
+ 	kmap_init();
+ 	tcm_init();
+ 
+ 	top_pmd = pmd_off_k(0xffff0000);
+ 
+ 	/* allocate the zero page. */
++	//分配零页
+ 	zero_page = early_alloc(PAGE_SIZE);
+ 
++	//初始化boot内存分配器。
+ 	bootmem_init();
+ 
++	//获得0页的页框
+ 	empty_zero_page = virt_to_page(zero_page);
++	//清除0页数据缓存。
+ 	__flush_dcache_page(NULL, empty_zero_page);
+ }
+diff --git a/include/linux/bootmem.h b/include/linux/bootmem.h
+index f589222b..bd4d505e 100644
+--- a/include/linux/bootmem.h
++++ b/include/linux/bootmem.h
+@@ -244,6 +244,9 @@ static inline void __init memblock_free_late(
+ 
+ 
+ /* Fall back to all the existing bootmem APIs */
++/**
++ * 在bootmem中分配内存
++ */
+ static inline void * __init memblock_virt_alloc(
+ 					phys_addr_t size,  phys_addr_t align)
+ {
+diff --git a/include/linux/irqdesc.h b/include/linux/irqdesc.h
+index a587a333..0ec5cf53 100644
+--- a/include/linux/irqdesc.h
++++ b/include/linux/irqdesc.h
+@@ -137,6 +137,10 @@ static inline struct msi_desc *irq_desc_get_msi_desc(struct irq_desc *desc)
+  */
+ static inline void generic_handle_irq_desc(struct irq_desc *desc)
+ {
++	/**
++	 * 调用描述符中的回调，例如handle_level_irq.
++	 * 通过__irq_set_handler设置回调函数。
++	 */
+ 	desc->handle_irq(desc);
+ }
+ 
+diff --git a/include/linux/notifier.h b/include/linux/notifier.h
+index d14a4c36..3b38fc4e 100644
+--- a/include/linux/notifier.h
++++ b/include/linux/notifier.h
+@@ -50,26 +50,36 @@
+ typedef	int (*notifier_fn_t)(struct notifier_block *nb,
+ 			unsigned long action, void *data);
+ 
++/**
++ * 事件接收者
++ */
+ struct notifier_block {
++	//接收者回调函数
+ 	notifier_fn_t notifier_call;
++	//通过此指针将接收者链接起来，注意__rcu关键字。
+ 	struct notifier_block __rcu *next;
++	//优先级
+ 	int priority;
+ };
+ 
++//原子通知链，在中断或者其他不允许阻塞的上下文调用回调函数
+ struct atomic_notifier_head {
+ 	spinlock_t lock;
+ 	struct notifier_block __rcu *head;
+ };
+ 
++//可阻塞通知链
+ struct blocking_notifier_head {
+ 	struct rw_semaphore rwsem;
+ 	struct notifier_block __rcu *head;
+ };
+ 
++//原始通知链，无限制，同步及保护由调用方负责
+ struct raw_notifier_head {
+ 	struct notifier_block __rcu *head;
+ };
+ 
++//SRCU通知链，可阻塞。但是srcu不允许长时间阻塞。
+ struct srcu_notifier_head {
+ 	struct mutex mutex;
+ 	struct srcu_struct srcu;
+diff --git a/init/main.c b/init/main.c
+index 7d4a11e2..9076b7cb 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -458,8 +458,10 @@ void __init parse_early_param(void)
+ 
+ static void __init boot_cpu_init(void)
+ {
++	//取当前CPU编号
+ 	int cpu = smp_processor_id();
+ 	/* Mark the boot cpu "present", "online" etc for SMP and UP case */
++	//在CPU位图中，将boot CPU设置为联机，可用
+ 	set_cpu_online(cpu, true);
+ 	set_cpu_active(cpu, true);
+ 	set_cpu_present(cpu, true);
+@@ -544,9 +546,16 @@ asmlinkage __visible void __init start_kernel(void)
+  * Interrupts are still disabled. Do necessary setups, then
+  * enable them
+  */
++ 	/**
++ 	 * 在CPU状态位图中注册当前CPU
++ 	 */
+ 	boot_cpu_init();
++	/**
++	 * 当开启高端内存选项时，初始化vmalloc用到的虚拟地址空间数据结构。
++	 */
+ 	page_address_init();
+ 	pr_notice("%s", linux_banner);
++	//处理CPU体系架构相关的事务。
+ 	setup_arch(&command_line);
+ 	mm_init_cpumask(&init_mm);
+ 	setup_command_line(command_line);
+@@ -605,6 +614,9 @@ asmlinkage __visible void __init start_kernel(void)
+ 	/* init some links before init_ISA_irqs() */
+ 	early_irq_init();
+ 	init_IRQ();
++	/**
++	 * 初始化时钟
++	 */
+ 	tick_init();
+ 	rcu_init_nohz();
+ 	init_timers();
+diff --git a/kernel/cpu.c b/kernel/cpu.c
+index 82cf9dff..02ca286b 100644
+--- a/kernel/cpu.c
++++ b/kernel/cpu.c
+@@ -771,6 +771,10 @@ EXPORT_SYMBOL_GPL(cpu_bit_bitmap);
+ const DECLARE_BITMAP(cpu_all_bits, NR_CPUS) = CPU_BITS_ALL;
+ EXPORT_SYMBOL(cpu_all_bits);
+ 
++/**
++ * 可能出现的CPU，根据menuconfig配置确定
++ * 实际的CPU可能并没有那么多。
++ */
+ #ifdef CONFIG_INIT_ALL_POSSIBLE
+ static DECLARE_BITMAP(cpu_possible_bits, CONFIG_NR_CPUS) __read_mostly
+ 	= CPU_BITS_ALL;
+@@ -780,10 +784,17 @@ static DECLARE_BITMAP(cpu_possible_bits, CONFIG_NR_CPUS) __read_mostly;
+ const struct cpumask *const cpu_possible_mask = to_cpumask(cpu_possible_bits);
+ EXPORT_SYMBOL(cpu_possible_mask);
+ 
++/**
++ * 所有联机CPU位图，联机表示该CPU可以接收中断和运行程序。
++ */
+ static DECLARE_BITMAP(cpu_online_bits, CONFIG_NR_CPUS) __read_mostly;
+ const struct cpumask *const cpu_online_mask = to_cpumask(cpu_online_bits);
+ EXPORT_SYMBOL(cpu_online_mask);
+ 
++/**
++ * 系统内可用CPU的位置，以ACPI等物理方式处理热插拨时，修改此位图。
++ * 其他的某些CPU可能并不联机。也就是其上并不运行中断和程序。
++ */
+ static DECLARE_BITMAP(cpu_present_bits, CONFIG_NR_CPUS) __read_mostly;
+ const struct cpumask *const cpu_present_mask = to_cpumask(cpu_present_bits);
+ EXPORT_SYMBOL(cpu_present_mask);
+diff --git a/kernel/irq/chip.c b/kernel/irq/chip.c
+index e28169dd..652ee613 100644
+--- a/kernel/irq/chip.c
++++ b/kernel/irq/chip.c
+@@ -430,6 +430,9 @@ static void cond_unmask_irq(struct irq_desc *desc)
+  *	it after the associated handler has acknowledged the device, so the
+  *	interrupt line is back to inactive.
+  */
++/**
++ * 大多数中断都是边缘触发，需要在开始时屏蔽外设，处理完以后再应答，解除屏蔽。
++ */
+ void handle_level_irq(struct irq_desc *desc)
+ {
+ 	raw_spin_lock(&desc->lock);
+diff --git a/kernel/irq/irqdesc.c b/kernel/irq/irqdesc.c
+index 239e2ae2..cbc2bd4a 100644
+--- a/kernel/irq/irqdesc.c
++++ b/kernel/irq/irqdesc.c
+@@ -343,10 +343,14 @@ void irq_init_desc(unsigned int irq)
+  */
+ int generic_handle_irq(unsigned int irq)
+ {
++	/**
++	 * 查找该中断号的描述符
++	 */
+ 	struct irq_desc *desc = irq_to_desc(irq);
+ 
+-	if (!desc)
++	if (!desc)//没有，可能是还没有注册任何中断。
+ 		return -EINVAL;
++	//调用注册的中断回调函数。
+ 	generic_handle_irq_desc(desc);
+ 	return 0;
+ }
+@@ -365,10 +369,17 @@ EXPORT_SYMBOL_GPL(generic_handle_irq);
+ int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
+ 			bool lookup, struct pt_regs *regs)
+ {
++	/**
++	 * 将当前中断现场保存下来
++	 * 这样其他代码就可以通过get_irq_regs函数获得中断现场了。
++	 */
+ 	struct pt_regs *old_regs = set_irq_regs(regs);
+ 	unsigned int irq = hwirq;
+ 	int ret = 0;
+ 
++	/**
++	 * 处理抢占计数，rcu等等
++	 */
+ 	irq_enter();
+ 
+ #ifdef CONFIG_IRQ_DOMAIN
+@@ -380,14 +391,20 @@ int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
+ 	 * Some hardware gives randomly wrong interrupts.  Rather
+ 	 * than crashing, do something sensible.
+ 	 */
+-	if (unlikely(!irq || irq >= nr_irqs)) {
++	if (unlikely(!irq || irq >= nr_irqs)) {//判断中断号的合法性
+ 		ack_bad_irq(irq);
+ 		ret = -EINVAL;
+ 	} else {
++		//进行通常的中断处理
+ 		generic_handle_irq(irq);
+ 	}
+ 
++	//处理rcu，抢占计数等等，也处理软中断
+ 	irq_exit();
++	/**
++	 * 退出中断前，恢复上一个pt_regs指针。
++	 * 上一次中断的处理代码调用get_irq_regs才正常。
++	 */
+ 	set_irq_regs(old_regs);
+ 	return ret;
+ }
+diff --git a/kernel/notifier.c b/kernel/notifier.c
+index fd2c9acb..581676ca 100644
+--- a/kernel/notifier.c
++++ b/kernel/notifier.c
+@@ -21,11 +21,15 @@ BLOCKING_NOTIFIER_HEAD(reboot_notifier_list);
+ static int notifier_chain_register(struct notifier_block **nl,
+ 		struct notifier_block *n)
+ {
++	/**
++	 * 遍历通知链，按优先级查找插入位置
++	 */
+ 	while ((*nl) != NULL) {
+ 		if (n->priority > (*nl)->priority)
+ 			break;
+ 		nl = &((*nl)->next);
+ 	}
++	//将侦听者插入链表。
+ 	n->next = *nl;
+ 	rcu_assign_pointer(*nl, n);
+ 	return 0;
+@@ -344,6 +348,9 @@ EXPORT_SYMBOL_GPL(blocking_notifier_call_chain);
+  *
+  *	Currently always returns zero.
+  */
++/**
++ * 将事件侦听者注册到通知链中。
++ */
+ int raw_notifier_chain_register(struct raw_notifier_head *nh,
+ 		struct notifier_block *n)
+ {
+diff --git a/kernel/resource.c b/kernel/resource.c
+index f150dbbe..36acc1d0 100644
+--- a/kernel/resource.c
++++ b/kernel/resource.c
+@@ -205,30 +205,39 @@ static struct resource *alloc_resource(gfp_t flags)
+ }
+ 
+ /* Return the conflict entry if you can't request it */
++/**
++ * 从资源空间中申请一段可用地址空间。
++ */
+ static struct resource * __request_resource(struct resource *root, struct resource *new)
+ {
+ 	resource_size_t start = new->start;
+ 	resource_size_t end = new->end;
+ 	struct resource *tmp, **p;
+ 
++	//检查参数有效性
+ 	if (end < start)
+ 		return root;
+ 	if (start < root->start)
+ 		return root;
+ 	if (end > root->end)
+ 		return root;
++
++	//待申请的空间确实位于空间内。
+ 	p = &root->child;
+-	for (;;) {
++	for (;;) {//遍历所有子节点
+ 		tmp = *p;
++		//找到合适的区间，将它插入到子节点链表中
+ 		if (!tmp || tmp->start > end) {
+ 			new->sibling = tmp;
+ 			*p = new;
+ 			new->parent = root;
+ 			return NULL;
+ 		}
++		//比较下一个节点。
+ 		p = &tmp->sibling;
+ 		if (tmp->end < start)
+ 			continue;
++		//糟了，冲突了。
+ 		return tmp;
+ 	}
+ }
+diff --git a/mm/bootmem.c b/mm/bootmem.c
+index 3b638078..266147bf 100644
+--- a/mm/bootmem.c
++++ b/mm/bootmem.c
+@@ -604,6 +604,7 @@ find_block:
+ 	return NULL;
+ }
+ 
++//bootmem分配核心函数
+ static void * __init alloc_bootmem_core(unsigned long size,
+ 					unsigned long align,
+ 					unsigned long goal,
+@@ -612,23 +613,31 @@ static void * __init alloc_bootmem_core(unsigned long size,
+ 	bootmem_data_t *bdata;
+ 	void *region;
+ 
++	//有人调错函数了，警告一下
+ 	if (WARN_ON_ONCE(slab_is_available()))
+-		return kzalloc(size, GFP_NOWAIT);
++		return kzalloc(size, GFP_NOWAIT);//此时slab分配器已经可用，就从slab中分配吧。
+ 
++	//遍历所有内存块
+ 	list_for_each_entry(bdata, &bdata_list, list) {
++		//根据goal查找合适的内存块。
+ 		if (goal && bdata->node_low_pfn <= PFN_DOWN(goal))
+ 			continue;
+ 		if (limit && bdata->node_min_pfn >= PFN_DOWN(limit))
+ 			break;
+ 
++		//在内存块中分配。
+ 		region = alloc_bootmem_bdata(bdata, size, align, goal, limit);
+-		if (region)
++		if (region)//成功了，返回
+ 			return region;
+ 	}
+ 
+ 	return NULL;
+ }
+ 
++/**
++ * 在bootmem中分配内存
++ * 优先从goal中分配，如果在goal中没有找到可用内存，则从其他内存条中分配。
++ */
+ static void * __init ___alloc_bootmem_nopanic(unsigned long size,
+ 					      unsigned long align,
+ 					      unsigned long goal,
+@@ -637,14 +646,16 @@ static void * __init ___alloc_bootmem_nopanic(unsigned long size,
+ 	void *ptr;
+ 
+ restart:
++	//从goal开始分配
+ 	ptr = alloc_bootmem_core(size, align, goal, limit);
+-	if (ptr)
++	if (ptr)//成功:)
+ 		return ptr;
+-	if (goal) {
++	if (goal) {//如果分配失败，并且不是从头开始分配，则回退
+ 		goal = 0;
+ 		goto restart;
+ 	}
+ 
++	//确实无法分配了:(
+ 	return NULL;
+ }
+ 
+diff --git a/mm/highmem.c b/mm/highmem.c
+index 123bcd3e..9e70ab5d 100644
+--- a/mm/highmem.c
++++ b/mm/highmem.c
+@@ -479,8 +479,11 @@ void __init page_address_init(void)
+ {
+ 	int i;
+ 
++	//遍历vmalloc虚拟地址空间的哈希桶
+ 	for (i = 0; i < ARRAY_SIZE(page_address_htable); i++) {
++		//初始化桶链表头
+ 		INIT_LIST_HEAD(&page_address_htable[i].lh);
++		//初始化管理桶的自旋锁。
+ 		spin_lock_init(&page_address_htable[i].lock);
+ 	}
+ }
+-- 
+2.25.1
+

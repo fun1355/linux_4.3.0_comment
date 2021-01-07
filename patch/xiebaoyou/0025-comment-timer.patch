@@ -1,0 +1,2088 @@
+From aaacd4eee88f6ed9804285334be64f652797292e Mon Sep 17 00:00:00 2001
+From: "xie.baoyou" <scxby@163.com>
+Date: Sat, 21 Oct 2017 22:47:57 +0800
+Subject: [PATCH] =?UTF-8?q?[comment-timer]=20=E6=97=B6=E9=92=9F=E6=A1=86?=
+ =?UTF-8?q?=E6=9E=B6=E7=AC=AC=E4=B8=80=E9=83=A8=E5=88=86?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ include/linux/clocksource.h         |   6 +
+ include/linux/posix-clock.h         |  13 ++
+ include/linux/posix-timers.h        |  59 ++++++++
+ include/linux/sched.h               |   2 +
+ include/linux/time.h                |   3 +
+ include/linux/time64.h              |   9 ++
+ include/linux/timekeeper_internal.h |  29 ++++
+ include/linux/timekeeping.h         |  30 ++++
+ include/linux/types.h               |   4 +
+ include/uapi/asm-generic/siginfo.h  |  36 +++++
+ include/uapi/linux/time.h           |  65 +++++++++
+ kernel/compat.c                     |  13 ++
+ kernel/signal.c                     |   2 +
+ kernel/time/hrtimer.c               |   3 +
+ kernel/time/itimer.c                |   5 +
+ kernel/time/posix-clock.c           |   6 +
+ kernel/time/posix-cpu-timers.c      |  37 ++++-
+ kernel/time/posix-timers.c          | 214 ++++++++++++++++++++++++----
+ kernel/time/tick-common.c           |   7 +
+ kernel/time/tick-sched.c            |  11 +-
+ kernel/time/time.c                  |  11 +-
+ kernel/time/timekeeping.c           | 193 +++++++++++++++++++++++--
+ 22 files changed, 713 insertions(+), 45 deletions(-)
+ mode change 100644 => 100755 include/linux/clocksource.h
+ mode change 100644 => 100755 include/linux/posix-clock.h
+ mode change 100644 => 100755 include/linux/posix-timers.h
+ mode change 100644 => 100755 include/linux/sched.h
+ mode change 100644 => 100755 include/linux/time.h
+ mode change 100644 => 100755 include/linux/time64.h
+ mode change 100644 => 100755 include/linux/timekeeper_internal.h
+ mode change 100644 => 100755 include/linux/timekeeping.h
+ mode change 100644 => 100755 include/linux/types.h
+ mode change 100644 => 100755 include/uapi/asm-generic/siginfo.h
+ mode change 100644 => 100755 include/uapi/linux/time.h
+ mode change 100644 => 100755 kernel/compat.c
+ mode change 100644 => 100755 kernel/signal.c
+ mode change 100644 => 100755 kernel/time/hrtimer.c
+ mode change 100644 => 100755 kernel/time/itimer.c
+ mode change 100644 => 100755 kernel/time/posix-clock.c
+ mode change 100644 => 100755 kernel/time/posix-cpu-timers.c
+ mode change 100644 => 100755 kernel/time/posix-timers.c
+ mode change 100644 => 100755 kernel/time/tick-common.c
+ mode change 100644 => 100755 kernel/time/tick-sched.c
+ mode change 100644 => 100755 kernel/time/time.c
+ mode change 100644 => 100755 kernel/time/timekeeping.c
+
+diff --git a/include/linux/clocksource.h b/include/linux/clocksource.h
+old mode 100644
+new mode 100755
+index 278dd279..1567204d
+--- a/include/linux/clocksource.h
++++ b/include/linux/clocksource.h
+@@ -81,6 +81,9 @@ struct clocksource {
+ 	const char *name;
+ 	struct list_head list;
+ 	int rating;
++	/**
++	 * 启用时钟源
++	 */
+ 	int (*enable)(struct clocksource *cs);
+ 	void (*disable)(struct clocksource *cs);
+ 	unsigned long flags;
+@@ -106,6 +109,9 @@ struct clocksource {
+ #define CLOCK_SOURCE_WATCHDOG			0x10
+ #define CLOCK_SOURCE_VALID_FOR_HRES		0x20
+ #define CLOCK_SOURCE_UNSTABLE			0x40
++/**
++ * 挂起时会继续运行而不停止
++ */
+ #define CLOCK_SOURCE_SUSPEND_NONSTOP		0x80
+ #define CLOCK_SOURCE_RESELECT			0x100
+ 
+diff --git a/include/linux/posix-clock.h b/include/linux/posix-clock.h
+old mode 100644
+new mode 100755
+index 34c4498b..84ba96ed
+--- a/include/linux/posix-clock.h
++++ b/include/linux/posix-clock.h
+@@ -114,12 +114,25 @@ struct posix_clock_operations {
+  * structure, obtaining a reference to it during callbacks using
+  * container_of().
+  */
++/**
++ * POSIX动态时钟
++ * 与传统时钟相比，它可以创建更多的时钟
++ */
+ struct posix_clock {
++	/**
++	 * 操作函数集
++	 * 分timer,clock,proc相关函数
++	 */
+ 	struct posix_clock_operations ops;
++	/* 时钟对应的字符设备 */
+ 	struct cdev cdev;
++	/* 引用计数 */
+ 	struct kref kref;
++	/* 保护底层设备的状态 */
+ 	struct rw_semaphore rwsem;
++	/* 底层设备是否被移除 */
+ 	bool zombie;
++	/* 当引用计数变为0时，回调此函数清除底层数据结构 */
+ 	void (*release)(struct posix_clock *clk);
+ };
+ 
+diff --git a/include/linux/posix-timers.h b/include/linux/posix-timers.h
+old mode 100644
+new mode 100755
+index 907f3fd1..f62894ae
+--- a/include/linux/posix-timers.h
++++ b/include/linux/posix-timers.h
+@@ -59,26 +59,65 @@ struct cpu_timer_list {
+ #define CLOCKID_TO_FD(clk)	((unsigned int) ~((clk) >> 3))
+ 
+ /* POSIX.1b interval timer structure. */
++/**
++ * 线程创建的posix时钟
++ */
+ struct k_itimer {
++	/* 进程链表节点 */
+ 	struct list_head list;		/* free/ allocate list */
++	/* 全局哈希表节点 */
+ 	struct hlist_node t_hash;
++	/**
++	 * 保护本数据结构的spin lock
++	 */
+ 	spinlock_t it_lock;
++	/**
++	 * 以系统中哪一个clock为标准来计算超时时间
++	 */
+ 	clockid_t it_clock;		/* which timer type */
++	/* imer的ID，在一个进程中唯一标识该timer */
+ 	timer_t it_id;			/* timer id */
++	/**
++	 * 用于overrun支持
++	 * 当前的overrun计数
++	 */
+ 	int it_overrun;			/* overrun on pending signal  */
++	/**
++	 * 上次overrun计数
++	 */
+ 	int it_overrun_last;		/* overrun on last delivered signal */
++	/**
++	 * 该timer对应信号挂入signal pending的状态
++	 * LSB bit标识该signal已经挂入signal pending队列，其他的bit作为信号的私有数据
++	 */
+ 	int it_requeue_pending;		/* waiting to requeue this timer */
+ #define REQUEUE_PENDING 1
++	/**
++	 * timer超期后如何异步通知该进程
++	 * 如SIGEV_SIGNAL
++	 */
+ 	int it_sigev_notify;		/* notify word of sigevent struct */
++	/**
++	 * 该timer对应的signal descriptor
++	 */
+ 	struct signal_struct *it_signal;
++	/**
++	 * 处理timer的线程
++	 */
+ 	union {
+ 		struct pid *it_pid;	/* pid of process to send signal to */
+ 		struct task_struct *it_process;	/* for clock_nanosleep */
+ 	};
++	/* 超期后，该sigquue成员会挂入signal pending队列 */
+ 	struct sigqueue *sigq;		/* signal queue entry. */
++	/**
++	 * timer interval相关的信息
++	 */
+ 	union {
++		/* real time clock */
+ 		struct {
+ 			struct hrtimer timer;
++			/* one shot为0，否则为周期 */
+ 			ktime_t interval;
+ 		} real;
+ 		struct cpu_timer_list cpu;
+@@ -88,6 +127,7 @@ struct k_itimer {
+ 			unsigned long incr;
+ 			unsigned long expires;
+ 		} mmtimer;
++		/* alarm timer相关的成员 */
+ 		struct {
+ 			struct alarm alarmtimer;
+ 			ktime_t interval;
+@@ -96,21 +136,40 @@ struct k_itimer {
+ 	} it;
+ };
+ 
++/**
++ * 时钟描述符
++ */
+ struct k_clock {
++	/* 获取时间精度 */
+ 	int (*clock_getres) (const clockid_t which_clock, struct timespec *tp);
++	/**
++	 * 获取和设定当前的时间
++	 */
+ 	int (*clock_set) (const clockid_t which_clock,
+ 			  const struct timespec *tp);
+ 	int (*clock_get) (const clockid_t which_clock, struct timespec * tp);
++	/**
++	 * 根据外部的精确时间信息对本clock进行调整
++	 */
+ 	int (*clock_adj) (const clockid_t which_clock, struct timex *tx);
+ 	int (*timer_create) (struct k_itimer *timer);
++	/**
++	 * 睡眠特定时间
++	 */
+ 	int (*nsleep) (const clockid_t which_clock, int flags,
+ 		       struct timespec *, struct timespec __user *);
+ 	long (*nsleep_restart) (struct restart_block *restart_block);
++	/**
++	 * Posix Timer相关
++	 */
+ 	int (*timer_set) (struct k_itimer * timr, int flags,
+ 			  struct itimerspec * new_setting,
+ 			  struct itimerspec * old_setting);
+ 	int (*timer_del) (struct k_itimer * timr);
+ #define TIMER_RETRY 1
++	/**
++	 * 获取时钟还有多长时间到期
++	 */
+ 	void (*timer_get) (struct k_itimer * timr,
+ 			   struct itimerspec * cur_setting);
+ };
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+old mode 100644
+new mode 100755
+index 7669e8d2..a159c37b
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -679,7 +679,9 @@ struct signal_struct {
+ 	unsigned int		has_child_subreaper:1;
+ 
+ 	/* POSIX.1b Interval Timers */
++	/* 进程最近分配的posix时钟ID，参照posix_timer_add */
+ 	int			posix_timer_id;
++	/* posix进程的时钟链表头 */
+ 	struct list_head	posix_timers;
+ 
+ 	/* ITIMER_REAL timer for the process */
+diff --git a/include/linux/time.h b/include/linux/time.h
+old mode 100644
+new mode 100755
+index beebe3a0..c1cc5cc3
+--- a/include/linux/time.h
++++ b/include/linux/time.h
+@@ -157,6 +157,9 @@ extern void do_sys_times(struct tms *);
+  * Similar to the struct tm in userspace <time.h>, but it needs to be here so
+  * that the kernel source is self contained.
+  */
++/**
++ * 人类世界的时间
++ */
+ struct tm {
+ 	/*
+ 	 * the number of seconds after the minute, normally in the range
+diff --git a/include/linux/time64.h b/include/linux/time64.h
+old mode 100644
+new mode 100755
+index 367d5af8..8e1722c8
+--- a/include/linux/time64.h
++++ b/include/linux/time64.h
+@@ -170,9 +170,15 @@ static inline struct timespec64 timespec64_sub(struct timespec64 lhs,
+ static inline bool timespec64_valid(const struct timespec64 *ts)
+ {
+ 	/* Dates before 1970 are bogus */
++	/**
++	 * 秒数值要大于等于0
++	 */
+ 	if (ts->tv_sec < 0)
+ 		return false;
+ 	/* Can't have more nanoseconds then a second */
++	/**
++	 * 纳秒值要小于NSEC_PER_SEC
++	 */
+ 	if ((unsigned long)ts->tv_nsec >= NSEC_PER_SEC)
+ 		return false;
+ 	return true;
+@@ -183,6 +189,9 @@ static inline bool timespec64_valid_strict(const struct timespec64 *ts)
+ 	if (!timespec64_valid(ts))
+ 		return false;
+ 	/* Disallow values that could overflow ktime_t */
++	/**
++	 * 秒数值小于KTIME_SEC_MAX
++	 */
+ 	if ((unsigned long long)ts->tv_sec >= KTIME_SEC_MAX)
+ 		return false;
+ 	return true;
+diff --git a/include/linux/timekeeper_internal.h b/include/linux/timekeeper_internal.h
+old mode 100644
+new mode 100755
+index 25247220..d7fba2e6
+--- a/include/linux/timekeeper_internal.h
++++ b/include/linux/timekeeper_internal.h
+@@ -80,21 +80,47 @@ struct tk_read_base {
+  * wall_to_monotonic is no longer the boot time, getboottime must be
+  * used instead.
+  */
++/**
++ * 维护time line，real time clock，monotonic clock、monotonic raw clock的描述符
++ */
+ struct timekeeper {
++	/**
++	 * 用于CLOCK_MONOTONIC和CLOCK_MONOTONIC_RAW的硬件
++	 */
+ 	struct tk_read_base	tkr_mono;
+ 	struct tk_read_base	tkr_raw;
++	/**
++	 * CLOCK_REALTIME类型的系统时钟
++	 */
+ 	u64			xtime_sec;
+ 	unsigned long		ktime_sec;
++	/**
++	 * CLOCK_MONOTONIC类型的系统时钟。
++	 * 定义了monotonic clock到real time clock的偏移
++	 */
+ 	struct timespec64	wall_to_monotonic;
+ 	ktime_t			offs_real;
++	/**
++	 * 系统启动时间
++	 */
+ 	ktime_t			offs_boot;
+ 	ktime_t			offs_tai;
++	/**
++	 * CLOCK_TAI类型的系统时钟。
++	 * 即原子钟
++	 */
+ 	s32			tai_offset;
+ 	unsigned int		clock_was_set_seq;
+ 	ktime_t			next_leap_ktime;
++	/**
++	 * CLOCK_MONOTONIC_RAW类型的系统时钟
++	 */
+ 	struct timespec64	raw_time;
+ 
+ 	/* The following members are for timekeeping internal use */
++	/**
++	 * 每个tick对应的cycles
++	 */
+ 	cycle_t			cycle_interval;
+ 	u64			xtime_interval;
+ 	s64			xtime_remainder;
+@@ -105,6 +131,9 @@ struct timekeeper {
+ 	 * mid-tick, and we don't want to apply that new value to
+ 	 * the tick in progress.
+ 	 */
++	/**
++	 * NTP相关字段
++	 */
+ 	u64			ntp_tick;
+ 	/* Difference between accumulated time and NTP time in ntp
+ 	 * shifted nano seconds. */
+diff --git a/include/linux/timekeeping.h b/include/linux/timekeeping.h
+old mode 100644
+new mode 100755
+index ba0ae09c..7c65f61e
+--- a/include/linux/timekeeping.h
++++ b/include/linux/timekeeping.h
+@@ -22,6 +22,10 @@ struct timespec64 current_kernel_time64(void);
+ /* does not take xtime_lock */
+ struct timespec __current_kernel_time(void);
+ 
++/**
++ * 类似于gettimeofday
++ * 但是精度低，效率稍微快一点。
++ */
+ static inline struct timespec current_kernel_time(void)
+ {
+ 	struct timespec64 now = current_kernel_time64();
+@@ -46,6 +50,9 @@ extern void getboottime64(struct timespec64 *ts);
+ /**
+  * Deprecated. Use do_settimeofday64().
+  */
++/**
++ * 设置时间
++ */
+ static inline int do_settimeofday(const struct timespec *ts)
+ {
+ 	return do_settimeofday64(ts);
+@@ -66,6 +73,9 @@ static inline void ktime_get_ts(struct timespec *ts)
+ 	ktime_get_ts64(ts);
+ }
+ 
++/**
++ * 获取real time clock的时间值
++ */
+ static inline void ktime_get_real_ts(struct timespec *ts)
+ {
+ 	getnstimeofday64(ts);
+@@ -76,6 +86,9 @@ static inline void getrawmonotonic(struct timespec *ts)
+ 	getrawmonotonic64(ts);
+ }
+ 
++/**
++ * 获取低精度的monotonic clock
++ */
+ static inline struct timespec get_monotonic_coarse(void)
+ {
+ 	return get_monotonic_coarse64();
+@@ -174,6 +187,9 @@ extern u32 ktime_get_resolution_ns(void);
+ /**
+  * ktime_get_real - get the real (wall-) time in ktime_t format
+  */
++/**
++ * 获取real time clock的时间值
++ */
+ static inline ktime_t ktime_get_real(void)
+ {
+ 	return ktime_get_with_offset(TK_OFFS_REAL);
+@@ -185,6 +201,12 @@ static inline ktime_t ktime_get_real(void)
+  * This is similar to CLOCK_MONTONIC/ktime_get, but also includes the
+  * time spent in suspend.
+  */
++/**
++ * 获取boot clock的时间值
++ * monotonic clock，它是不记录系统睡眠时间的
++ * 因此monotonic clock得到的是一个system uptime。
++ * 而boot clock计算睡眠时间，直到系统reboot。
++ */
+ static inline ktime_t ktime_get_boottime(void)
+ {
+ 	return ktime_get_with_offset(TK_OFFS_BOOT);
+@@ -193,6 +215,10 @@ static inline ktime_t ktime_get_boottime(void)
+ /**
+  * ktime_get_clocktai - Returns the TAI time of day in ktime_t format
+  */
++/**
++ * 获取TAI clock的时间值
++ * 原子钟，不可修改
++ */
+ static inline ktime_t ktime_get_clocktai(void)
+ {
+ 	return ktime_get_with_offset(TK_OFFS_TAI);
+@@ -237,6 +263,10 @@ extern u64 ktime_get_raw_fast_ns(void);
+ /*
+  * Timespec interfaces utilizing the ktime based ones
+  */
++/**
++ * 获得boottime，与ktime_get_boottime类似
++ * 但是返回格式不同
++ */
+ static inline void get_monotonic_boottime(struct timespec *ts)
+ {
+ 	*ts = ktime_to_timespec(ktime_get_boottime());
+diff --git a/include/linux/types.h b/include/linux/types.h
+old mode 100644
+new mode 100755
+index c314989d..a70ad5d0
+--- a/include/linux/types.h
++++ b/include/linux/types.h
+@@ -66,6 +66,10 @@ typedef __kernel_ptrdiff_t	ptrdiff_t;
+ 
+ #ifndef _TIME_T
+ #define _TIME_T
++/**
++ * POSIX标准定义的一个以秒计的时间值
++ * 从UTC时间到当前时间的秒数
++ */
+ typedef __kernel_time_t		time_t;
+ #endif
+ 
+diff --git a/include/uapi/asm-generic/siginfo.h b/include/uapi/asm-generic/siginfo.h
+old mode 100644
+new mode 100755
+index 1e355203..921f330f
+--- a/include/uapi/asm-generic/siginfo.h
++++ b/include/uapi/asm-generic/siginfo.h
+@@ -164,6 +164,9 @@ typedef struct siginfo {
+ #define SI_USER		0		/* sent by kill, sigsend, raise */
+ #define SI_KERNEL	0x80		/* sent by the kernel from somewhere */
+ #define SI_QUEUE	-1		/* sent by sigqueue */
++/**
++ * 信号是由于posix timer而产生的。
++ */
+ #define SI_TIMER __SI_CODE(__SI_TIMER,-2) /* sent by timer expiration */
+ #define SI_MESGQ __SI_CODE(__SI_MESGQ,-3) /* sent by real time mesq state change */
+ #define SI_ASYNCIO	-4		/* sent by AIO completion */
+@@ -265,9 +268,25 @@ typedef struct siginfo {
+  * thread manager then catches and does the appropriate nonsense.
+  * However, everything is written out here so as to not get lost.
+  */
++/**
++ * 使用sinal这样的异步通知方式。
++ * 发送的信号由sigev_signo定义。
++ * 如果发送的是realtime signal，该信号的附加数据由sigev_value定义。
++ */
+ #define SIGEV_SIGNAL	0	/* notify via signal */
++/**
++ * 不需要异步通知
++ * 程序自己调用timer_gettime来轮询timer的当前状态
++ */
+ #define SIGEV_NONE	1	/* other notification: meaningless */
++/**
++ * 创建一个线程执行timer超期callback函数
++ */
+ #define SIGEV_THREAD	2	/* deliver via thread creation */
++/**
++ * 行为和SIGEV_SIGNAL类似
++ * 不过发送的信号被送达进程内的一个指定的线程
++ */
+ #define SIGEV_THREAD_ID 4	/* deliver to thread */
+ 
+ /*
+@@ -283,15 +302,32 @@ typedef struct siginfo {
+ 		/ sizeof(int))
+ 
+ typedef struct sigevent {
++	/**
++	 * sigev_notify = SIGEV_SIGNAL时，并且发送的是实时信号时，
++	 * 所发送的信号附加数据 
++	 */
+ 	sigval_t sigev_value;
++	/**
++	 * sigev_notify = SIGEV_SIGNAL时，所发送的信号
++	 */
+ 	int sigev_signo;
++	/**
++	 * time超时后，如何通知线程
++	 * 如SIGEV_NONE
++	 */
+ 	int sigev_notify;
+ 	union {
+ 		int _pad[SIGEV_PAD_SIZE];
++		/**
++		 * 当sigev_notify = SIGEV_THREAD_ID时，接收信号的线程ID
++		 */
+ 		 int _tid;
+ 
+ 		struct {
+ 			void (*_function)(sigval_t);
++			/**
++			 * sigev_notify = SIGEV_THREAD时，所创建线程的属性
++			 */
+ 			void *_attribute;	/* really pthread_attr_t */
+ 		} _sigev_thread;
+ 	} _sigev_un;
+diff --git a/include/uapi/linux/time.h b/include/uapi/linux/time.h
+old mode 100644
+new mode 100755
+index e75e1b6f..579bc002
+--- a/include/uapi/linux/time.h
++++ b/include/uapi/linux/time.h
+@@ -6,12 +6,19 @@
+ 
+ #ifndef _STRUCT_TIMESPEC
+ #define _STRUCT_TIMESPEC
++/**
++ * 纳秒精度的时间
++ * 满足POSIX标准
++ */
+ struct timespec {
+ 	__kernel_time_t	tv_sec;			/* seconds */
+ 	long		tv_nsec;		/* nanoseconds */
+ };
+ #endif
+ 
++/**
++ * 微秒精度的时间
++ */
+ struct timeval {
+ 	__kernel_time_t		tv_sec;		/* seconds */
+ 	__kernel_suseconds_t	tv_usec;	/* microseconds */
+@@ -27,8 +34,21 @@ struct timezone {
+  * Names of the interval timers, and structure
+  * defining a timer setting:
+  */
++/**
++ * real-time
++ * 基于CLOCK_REALTIME计时，超时后发送SIGALRM信号
++ * 和alarm函数一样
++ */
+ #define	ITIMER_REAL		0
++/**
++ * 只有当该进程的用户空间代码执行的时候才计时
++ * 超时后发送SIGVTALRM信号
++ */
+ #define	ITIMER_VIRTUAL		1
++/**
++ * 只有该进程执行的时候才计时，不论是执行用户空间代码还是陷入内核执行（例如系统调用）
++ * 超时后发送SIGPROF信号。
++ */
+ #define	ITIMER_PROF		2
+ 
+ struct itimerspec {
+@@ -36,25 +56,70 @@ struct itimerspec {
+ 	struct timespec it_value;	/* timer expiration */
+ };
+ 
++/**
++ * getitimer的定时器值
++ */
+ struct itimerval {
++	/**
++	 * 间隔时间
++	 */
+ 	struct timeval it_interval;	/* timer interval */
++	/**
++	 * 下次定时器开始时间
++	 */
+ 	struct timeval it_value;	/* current value */
+ };
+ 
+ /*
+  * The IDs of the various system clocks (for POSIX.1b interval timers):
+  */
++/**
++ * 真实世界的时钟，即墙上时钟
++ * 可以对该系统时钟进行修改，产生不连续的时间间断点。
++ * 也可以通过NTP对该时钟进行调整
++ */
+ #define CLOCK_REALTIME			0
++/**
++ * 真实世界的时钟，单调递增。
++ * 不能手动调整，但是可以通过NTP协议进行调整
++ * 其基准点不一定是linux epoch
++ * 一般会把系统启动的时间点设定为其基准点
++ */
+ #define CLOCK_MONOTONIC			1
++/**
++ * 基于进程或者线程执行时间来计算的时间
++ * 参考clock_getcpuclockid
++ */
+ #define CLOCK_PROCESS_CPUTIME_ID	2
+ #define CLOCK_THREAD_CPUTIME_ID		3
++/**
++ * 与CLOCK_MONOTONIC类似
++ * 但是不允许NTP对其进行调整
++ * 启动时设置为0
++ */
+ #define CLOCK_MONOTONIC_RAW		4
++/**
++ * CLOCK_REALTIME_COARSE、CLOCK_MONOTONIC_COARSE的概念和CLOCK_REALTIME、CLOCK_MONOTONIC类似
++ * 但是精度是比较粗的版本。
++ */
+ #define CLOCK_REALTIME_COARSE		5
+ #define CLOCK_MONOTONIC_COARSE		6
++/**
++ * 和CLOCK_MONOTONIC类似，也是单调上涨
++ * 在系统初始化的时候设定的基准数值是0
++ * 不过CLOCK_BOOTTIME计算系统suspend的时间
++ */
+ #define CLOCK_BOOTTIME			7
++/**
++ * 主要用于Alarmtimer，这种timer是基于RTC的
++ */
+ #define CLOCK_REALTIME_ALARM		8
+ #define CLOCK_BOOTTIME_ALARM		9
+ #define CLOCK_SGI_CYCLE			10	/* Hardware specific */
++/**
++ * 原子钟的时间
++ * 和基于UTC的CLOCK_REALTIME类似，不过没有闰秒
++ */
+ #define CLOCK_TAI			11
+ 
+ #define MAX_CLOCKS			16
+diff --git a/kernel/compat.c b/kernel/compat.c
+old mode 100644
+new mode 100755
+index 333d364b..a9f7a2d6
+--- a/kernel/compat.c
++++ b/kernel/compat.c
+@@ -754,6 +754,11 @@ COMPAT_SYSCALL_DEFINE2(clock_settime, clockid_t, which_clock,
+ 	return err;
+ }
+ 
++/**
++ * 获取从linux epoch到当前时间点的秒数以及微秒数
++ * 新的接口
++ * 	which_clock:	如CLOCK_REALTIME
++ */
+ COMPAT_SYSCALL_DEFINE2(clock_gettime, clockid_t, which_clock,
+ 		       struct compat_timespec __user *, tp)
+ {
+@@ -835,6 +840,11 @@ static long compat_clock_nanosleep_restart(struct restart_block *restart)
+ 	return err;
+ }
+ 
++/**
++ * 类似于nanosleep
++ * 但是允许指定clockid
++ * flag:绝对时间还是相对时间
++ */
+ COMPAT_SYSCALL_DEFINE4(clock_nanosleep, clockid_t, which_clock, int, flags,
+ 		       struct compat_timespec __user *, rqtp,
+ 		       struct compat_timespec __user *, rmtp)
+@@ -1065,6 +1075,9 @@ COMPAT_SYSCALL_DEFINE1(stime, compat_time_t __user *, tptr)
+ 
+ #endif /* __ARCH_WANT_COMPAT_SYS_TIME */
+ 
++/**
++ * 调整CLOCK_REALTIME时钟
++ */
+ COMPAT_SYSCALL_DEFINE1(adjtimex, struct compat_timex __user *, utp)
+ {
+ 	struct timex txc;
+diff --git a/kernel/signal.c b/kernel/signal.c
+old mode 100644
+new mode 100755
+index 26b4200f..1a7bb778
+--- a/kernel/signal.c
++++ b/kernel/signal.c
+@@ -657,6 +657,7 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
+ 		 */
+ 		current->jobctl |= JOBCTL_STOP_DEQUEUED;
+ 	}
++	/* Posix定时器信号 */
+ 	if ((info->si_code & __SI_MASK) == __SI_TIMER && info->si_sys_private) {
+ 		/*
+ 		 * Release the siglock to ensure proper locking order
+@@ -665,6 +666,7 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
+ 		 * about to disable them again anyway.
+ 		 */
+ 		spin_unlock(&tsk->sighand->siglock);
++		/* 处理Posix定时器，启动下一次时钟 */
+ 		do_schedule_next_timer(info);
+ 		spin_lock(&tsk->sighand->siglock);
+ 	}
+diff --git a/kernel/time/hrtimer.c b/kernel/time/hrtimer.c
+old mode 100644
+new mode 100755
+index b92b391e..acd4d23d
+--- a/kernel/time/hrtimer.c
++++ b/kernel/time/hrtimer.c
+@@ -1459,6 +1459,9 @@ void hrtimer_init_sleeper(struct hrtimer_sleeper *sl, struct task_struct *task)
+ }
+ EXPORT_SYMBOL_GPL(hrtimer_init_sleeper);
+ 
++/**
++ * 纳秒级的睡眠
++ */
+ static int __sched do_nanosleep(struct hrtimer_sleeper *t, enum hrtimer_mode mode)
+ {
+ 	hrtimer_init_sleeper(t, current);
+diff --git a/kernel/time/itimer.c b/kernel/time/itimer.c
+old mode 100644
+new mode 100755
+index 8d262b46..da7c0a1b
+--- a/kernel/time/itimer.c
++++ b/kernel/time/itimer.c
+@@ -76,6 +76,11 @@ static void get_cpu_itimer(struct task_struct *tsk, unsigned int clock_id,
+ 	cputime_to_timeval(cinterval, &value->it_interval);
+ }
+ 
++/**
++ * 类似于alarm
++ * 已经废弃
++ * 	which:	使用哪个timer，如ITIMER_REAL
++ */
+ int do_getitimer(int which, struct itimerval *value)
+ {
+ 	struct task_struct *tsk = current;
+diff --git a/kernel/time/posix-clock.c b/kernel/time/posix-clock.c
+old mode 100644
+new mode 100755
+index ce033c7a..e13a5f85
+--- a/kernel/time/posix-clock.c
++++ b/kernel/time/posix-clock.c
+@@ -206,6 +206,9 @@ static const struct file_operations posix_clock_file_operations = {
+ #endif
+ };
+ 
++/**
++ * 注册posix动态时钟
++ */
+ int posix_clock_register(struct posix_clock *clk, dev_t devid)
+ {
+ 	int err;
+@@ -229,6 +232,9 @@ static void delete_clock(struct kref *kref)
+ 		clk->release(clk);
+ }
+ 
++/**
++ * 注销posix动态时钟
++ */
+ void posix_clock_unregister(struct posix_clock *clk)
+ {
+ 	cdev_del(&clk->cdev);
+diff --git a/kernel/time/posix-cpu-timers.c b/kernel/time/posix-cpu-timers.c
+old mode 100644
+new mode 100755
+index 892e3dae..6d2ded33
+--- a/kernel/time/posix-cpu-timers.c
++++ b/kernel/time/posix-cpu-timers.c
+@@ -32,15 +32,22 @@ static int check_clock(const clockid_t which_clock)
+ {
+ 	int error = 0;
+ 	struct task_struct *p;
++	/**
++	 * 前29位是进程ID的反码
++	 * 用反码是为了确保它是一个负数
++	 */
+ 	const pid_t pid = CPUCLOCK_PID(which_clock);
+ 
++	/* 只有三个固定CLOCK */
+ 	if (CPUCLOCK_WHICH(which_clock) >= CPUCLOCK_MAX)
+ 		return -EINVAL;
+ 
++	/* 当前进程的时钟 */
+ 	if (pid == 0)
+ 		return 0;
+ 
+ 	rcu_read_lock();
++	/* 查找pid对应的线程，看其是否真的存在 */
+ 	p = find_task_by_vpid(pid);
+ 	if (!p || !(CPUCLOCK_PERTHREAD(which_clock) ?
+ 		   same_thread_group(p, current) : has_group_leader_pid(p))) {
+@@ -143,16 +150,20 @@ static inline unsigned long long virt_ticks(struct task_struct *p)
+ static int
+ posix_cpu_clock_getres(const clockid_t which_clock, struct timespec *tp)
+ {
++	/* 检查参数 */
+ 	int error = check_clock(which_clock);
+-	if (!error) {
++	if (!error) {/* ID正确 */
+ 		tp->tv_sec = 0;
++		/* 默认精度就是HZ */
+ 		tp->tv_nsec = ((NSEC_PER_SEC + HZ - 1) / HZ);
++		/* 对SCHED时钟来说 */
+ 		if (CPUCLOCK_WHICH(which_clock) == CPUCLOCK_SCHED) {
+ 			/*
+ 			 * If sched_clock is using a cycle counter, we
+ 			 * don't have any idea of its true resolution
+ 			 * exported, but it is much more than 1s/HZ.
+ 			 */
++			/* 精度是纳秒 */
+ 			tp->tv_nsec = 1;
+ 		}
+ 	}
+@@ -184,12 +195,15 @@ static int cpu_clock_sample(const clockid_t which_clock, struct task_struct *p,
+ 	default:
+ 		return -EINVAL;
+ 	case CPUCLOCK_PROF:
++		/* 用户态和内核态的时间 */
+ 		*sample = prof_ticks(p);
+ 		break;
+ 	case CPUCLOCK_VIRT:
++		/* 用户态的时间 */
+ 		*sample = virt_ticks(p);
+ 		break;
+ 	case CPUCLOCK_SCHED:
++		/* Sched时间 */
+ 		*sample = task_sched_runtime(p);
+ 		break;
+ 	}
+@@ -291,31 +305,42 @@ static int posix_cpu_clock_get_task(struct task_struct *tsk,
+ 	int err = -EINVAL;
+ 	unsigned long long rtn;
+ 
+-	if (CPUCLOCK_PERTHREAD(which_clock)) {
++	if (CPUCLOCK_PERTHREAD(which_clock)) {/* 线程的时间 */
++		/**
++		 * 必须和调用者是同一个线程组
++		 */
+ 		if (same_thread_group(tsk, current))
++			/**
++			 * 获得线程的时间
++			 */
+ 			err = cpu_clock_sample(which_clock, tsk, &rtn);
+-	} else {
++	} else {/* 进程的时间 */
+ 		if (tsk == current || thread_group_leader(tsk))
++			/* 获取进程组的时间 */
+ 			err = cpu_clock_sample_group(which_clock, tsk, &rtn);
+ 	}
+ 
+-	if (!err)
++	if (!err)/* 将结果赋值 */
+ 		sample_to_timespec(which_clock, rtn, tp);
+ 
+ 	return err;
+ }
+ 
+ 
++/**
++ * 获得posix cpu时钟
++ */
+ static int posix_cpu_clock_get(const clockid_t which_clock, struct timespec *tp)
+ {
+ 	const pid_t pid = CPUCLOCK_PID(which_clock);
+ 	int err = -EINVAL;
+ 
+-	if (pid == 0) {
++	if (pid == 0) {/* 获取当前线程的时间 */
+ 		/*
+ 		 * Special case constant value for our own clocks.
+ 		 * We don't have to do any lookup to find ourselves.
+ 		 */
++		/* 获取线程的CPU时间 */
+ 		err = posix_cpu_clock_get_task(current, which_clock, tp);
+ 	} else {
+ 		/*
+@@ -324,8 +349,10 @@ static int posix_cpu_clock_get(const clockid_t which_clock, struct timespec *tp)
+ 		 */
+ 		struct task_struct *p;
+ 		rcu_read_lock();
++		/* 根据pid查找线程描述符 */
+ 		p = find_task_by_vpid(pid);
+ 		if (p)
++			/* 获取线程的CPU时间 */
+ 			err = posix_cpu_clock_get_task(p, which_clock, tp);
+ 		rcu_read_unlock();
+ 	}
+diff --git a/kernel/time/posix-timers.c b/kernel/time/posix-timers.c
+old mode 100644
+new mode 100755
+index 31d11ac9..f8835b87
+--- a/kernel/time/posix-timers.c
++++ b/kernel/time/posix-timers.c
+@@ -65,7 +65,14 @@
+  */
+ static struct kmem_cache *posix_timers_cache;
+ 
++/**
++ * 全局posix时钟哈希表
++ * 512个入口
++ */
+ static DEFINE_HASHTABLE(posix_timers_hashtable, 9);
++/**
++ * 保护全局posix时钟的锁
++ */
+ static DEFINE_SPINLOCK(hash_lock);
+ 
+ /*
+@@ -124,6 +131,9 @@ static DEFINE_SPINLOCK(hash_lock);
+  *	    which we beg off on and pass to do_sys_settimeofday().
+  */
+ 
++/**
++ * 静态定义的Posix时钟
++ */
+ static struct k_clock posix_clocks[MAX_CLOCKS];
+ 
+ /*
+@@ -176,19 +186,25 @@ static struct k_itimer *posix_timer_by_id(timer_t id)
+ static int posix_timer_add(struct k_itimer *timer)
+ {
+ 	struct signal_struct *sig = current->signal;
++	/**
++	 * posix_timer_id中记录了上一次分配的ID+1
++	 * 问问这里开始分配，成功率较高
++	 */
+ 	int first_free_id = sig->posix_timer_id;
+ 	struct hlist_head *head;
+ 	int ret = -ENOENT;
+ 
+-	do {
++	do {/* 循环，直到找到可用ID */
+ 		spin_lock(&hash_lock);
+ 		head = &posix_timers_hashtable[hash(sig, sig->posix_timer_id)];
+-		if (!__posix_timers_find(head, sig, sig->posix_timer_id)) {
++		if (!__posix_timers_find(head, sig, sig->posix_timer_id)) {/* 可用ID */
+ 			hlist_add_head_rcu(&timer->t_hash, head);
+ 			ret = sig->posix_timer_id;
+ 		}
+-		if (++sig->posix_timer_id < 0)
++		/* 不管3721，都要增加free id */
++		if (++sig->posix_timer_id < 0)/* 回绕ID */
+ 			sig->posix_timer_id = 0;
++		/* 找了一圈都还没有找到，有点坑爹 */
+ 		if ((sig->posix_timer_id == first_free_id) && (ret == -ENOENT))
+ 			/* Loop over all possible ids completed */
+ 			ret = -EAGAIN;
+@@ -284,6 +300,7 @@ static int posix_get_hrtimer_res(clockid_t which_clock, struct timespec *tp)
+  */
+ static __init int init_posix_timers(void)
+ {
++	/* real time时钟 */
+ 	struct k_clock clock_realtime = {
+ 		.clock_getres	= posix_get_hrtimer_res,
+ 		.clock_get	= posix_clock_realtime_get,
+@@ -296,6 +313,7 @@ static __init int init_posix_timers(void)
+ 		.timer_get	= common_timer_get,
+ 		.timer_del	= common_timer_del,
+ 	};
++	/* monotonic 时钟，没有set接口 */
+ 	struct k_clock clock_monotonic = {
+ 		.clock_getres	= posix_get_hrtimer_res,
+ 		.clock_get	= posix_ktime_get_ts,
+@@ -359,16 +377,29 @@ static void schedule_next_timer(struct k_itimer *timr)
+ {
+ 	struct hrtimer *timer = &timr->it.real.timer;
+ 
+-	if (timr->it.real.interval.tv64 == 0)
++	if (timr->it.real.interval.tv64 == 0)/* one shot类型的，直接退出 */
+ 		return;
+ 
++	/**
++	 * 设定下次超期时间并计算overrun次数
++	 */
+ 	timr->it_overrun += (unsigned int) hrtimer_forward(timer,
+ 						timer->base->get_time(),
+ 						timr->it.real.interval);
+ 
++	/**
++	 * 保存该timer的overrun次数
++	 * 信号处理函数获取该值，来获知被overrun的次数
++	 */
+ 	timr->it_overrun_last = timr->it_overrun;
++	/* 为下次初始化overrun */
+ 	timr->it_overrun = -1;
++	/**
++	 * 清除pending标记并增加信号私有数据域
++	 * 私有数据域是信号被发送的次数，将其加1
++	 */
+ 	++timr->it_requeue_pending;
++	/* 重启复位定时器 */
+ 	hrtimer_restart(timer);
+ }
+ 
+@@ -383,6 +414,9 @@ static void schedule_next_timer(struct k_itimer *timr)
+  * To protect against the timer going away while the interrupt is queued,
+  * we require that the it_requeue_pending flag be set.
+  */
++/**
++ * Posix定时器信号被摘除后，由此函数重启定时器
++ */
+ void do_schedule_next_timer(struct siginfo *info)
+ {
+ 	struct k_itimer *timr;
+@@ -391,9 +425,9 @@ void do_schedule_next_timer(struct siginfo *info)
+ 	timr = lock_timer(info->si_tid, &flags);
+ 
+ 	if (timr && timr->it_requeue_pending == info->si_sys_private) {
+-		if (timr->it_clock < 0)
++		if (timr->it_clock < 0)/* 动态Posix定时器 */
+ 			posix_cpu_timer_schedule(timr);
+-		else
++		else/* 普通Posix定时器 */
+ 			schedule_next_timer(timr);
+ 
+ 		info->si_overrun += timr->it_overrun_last;
+@@ -439,26 +473,42 @@ EXPORT_SYMBOL_GPL(posix_timer_event);
+ 
+  * This code is for CLOCK_REALTIME* and CLOCK_MONOTONIC* timers.
+  */
++/**
++ * 普通posix时钟到期处理回调函数
++ */
+ static enum hrtimer_restart posix_timer_fn(struct hrtimer *timer)
+ {
+ 	struct k_itimer *timr;
+ 	unsigned long flags;
+ 	int si_private = 0;
++	/**
++	 * 对于one shot类型的，需要返回HRTIMER_NORESTART
++	 */
+ 	enum hrtimer_restart ret = HRTIMER_NORESTART;
+ 
++	/* 获取该高精度timer对应的那个k_itimer数据 */
+ 	timr = container_of(timer, struct k_itimer, it.real.timer);
+ 	spin_lock_irqsave(&timr->it_lock, flags);
+ 
+-	if (timr->it.real.interval.tv64 != 0)
++	if (timr->it.real.interval.tv64 != 0)/* 周期性timer */
++		/**
++		 * 有可能会有overrun的问题
++		 * 这时候，需要传递一个signal的私有数据，以便在queue signal的时候进行标识
++		 * ++timr->it_requeue_pending用来标记该timer处于pending状态
++		 * 加一就是将LSB设定为1
++		 */
+ 		si_private = ++timr->it_requeue_pending;
+ 
++	/**
++	 * 将信号挂入进程（线程）signal pending队列
++	 */
+ 	if (posix_timer_event(timr, si_private)) {
+ 		/*
+ 		 * signal was not sent because of sig_ignor
+ 		 * we will not get a call back to restart it AND
+ 		 * it should be restarted.
+ 		 */
+-		if (timr->it.real.interval.tv64 != 0) {
++		if (timr->it.real.interval.tv64 != 0) {/* 周期性定时器 */
+ 			ktime_t now = hrtimer_cb_get_time(timer);
+ 
+ 			/*
+@@ -491,9 +541,11 @@ static enum hrtimer_restart posix_timer_fn(struct hrtimer *timer)
+ 					now = ktime_add(now, kj);
+ 			}
+ #endif
++			/* 增加overrun */
+ 			timr->it_overrun += (unsigned int)
+ 				hrtimer_forward(timer, now,
+ 						timr->it.real.interval);
++			/* 重新启动时钟，以处理下一次overrun */
+ 			ret = HRTIMER_RESTART;
+ 			++timr->it_requeue_pending;
+ 		}
+@@ -507,14 +559,14 @@ static struct pid *good_sigevent(sigevent_t * event)
+ {
+ 	struct task_struct *rtn = current->group_leader;
+ 
+-	if ((event->sigev_notify & SIGEV_THREAD_ID ) &&
+-		(!(rtn = find_task_by_vpid(event->sigev_notify_thread_id)) ||
+-		 !same_thread_group(rtn, current) ||
+-		 (event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_SIGNAL))
++	if ((event->sigev_notify & SIGEV_THREAD_ID ) &&/* 指定由线程来处理信号 */
++		(!(rtn = find_task_by_vpid(event->sigev_notify_thread_id)) ||/* 线程确实要存在 */
++		 !same_thread_group(rtn, current) ||/* 同一进程组 */
++		 (event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_SIGNAL))/* 参数不冲突 */
+ 		return NULL;
+ 
+-	if (((event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE) &&
+-	    ((event->sigev_signo <= 0) || (event->sigev_signo > SIGRTMAX)))
++	if (((event->sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE) &&/* 由信号来处理 */
++	    ((event->sigev_signo <= 0) || (event->sigev_signo > SIGRTMAX)))/* 信号编号要正确 */
+ 		return NULL;
+ 
+ 	return task_pid(rtn);
+@@ -580,17 +632,28 @@ static void release_posix_timer(struct k_itimer *tmr, int it_id_set)
+ 	call_rcu(&tmr->it.rcu, k_itimer_rcu_free);
+ }
+ 
++/**
++ * 转换时钟ID
++ */
+ static struct k_clock *clockid_to_kclock(const clockid_t id)
+ {
+-	if (id < 0)
++	if (id < 0)/* 不是静态ID */
+ 		return (id & CLOCKFD_MASK) == CLOCKFD ?
+ 			&clock_posix_dynamic : &clock_posix_cpu;
+ 
++	/**
++	 * 静态ID
++	 * 如果相应的静态ID没有实现，就返回NULL
++	 */
+ 	if (id >= MAX_CLOCKS || !posix_clocks[id].clock_getres)
+ 		return NULL;
++	/* 静态ID */
+ 	return &posix_clocks[id];
+ }
+ 
++/**
++ * 非动态时钟的创建
++ */
+ static int common_timer_create(struct k_itimer *new_timer)
+ {
+ 	hrtimer_init(&new_timer->it.real.timer, new_timer->it_clock, 0);
+@@ -599,54 +662,81 @@ static int common_timer_create(struct k_itimer *new_timer)
+ 
+ /* Create a POSIX.1b interval timer. */
+ 
++/**
++ * 创建posix定时器
++ * 目前好使的接口，应该多用
++ */
+ SYSCALL_DEFINE3(timer_create, const clockid_t, which_clock,
+ 		struct sigevent __user *, timer_event_spec,
+ 		timer_t __user *, created_timer_id)
+ {
++	/**
++	 * 根据clock ID获取内核中的struct k_clock
++	 */
+ 	struct k_clock *kc = clockid_to_kclock(which_clock);
+ 	struct k_itimer *new_timer;
+ 	int error, new_timer_id;
+ 	sigevent_t event;
+ 	int it_id_set = IT_ID_NOT_SET;
+ 
++	/* 哦豁，非法id */
+ 	if (!kc)
+ 		return -EINVAL;
++	/* 这种类型的时钟，不允许创建，算球 */
+ 	if (!kc->timer_create)
+ 		return -EOPNOTSUPP;
+ 
++	/**
++	 * 分配一个POSIX timer
++	 * 所有成员被初始化为0
++	 */
+ 	new_timer = alloc_posix_timer();
+ 	if (unlikely(!new_timer))
+ 		return -EAGAIN;
+ 
+ 	spin_lock_init(&new_timer->it_lock);
++	/**
++	 * 先分配一个ID
++	 * 再将该timer加入到全局的哈希表中。
++	 */
+ 	new_timer_id = posix_timer_add(new_timer);
+-	if (new_timer_id < 0) {
++	if (new_timer_id < 0) {/* 分配失败，背时的东西 */
+ 		error = new_timer_id;
+ 		goto out;
+ 	}
+ 
+ 	it_id_set = IT_ID_SET;
++	/**
++	 * 初始化该posix timer，设定timer ID，clock ID以及overrun的值。
++	 */
+ 	new_timer->it_id = (timer_t) new_timer_id;
+ 	new_timer->it_clock = which_clock;
+ 	new_timer->it_overrun = -1;
+ 
+-	if (timer_event_spec) {
++	if (timer_event_spec) {/* 用户指定了处理方式 */
++		/* 复制用户态参数 */
+ 		if (copy_from_user(&event, timer_event_spec, sizeof (event))) {
+ 			error = -EFAULT;
+ 			goto out;
+ 		}
+ 		rcu_read_lock();
++		/* 确定处理定时器的任务ID */
+ 		new_timer->it_pid = get_pid(good_sigevent(&event));
+ 		rcu_read_unlock();
+-		if (!new_timer->it_pid) {
++		if (!new_timer->it_pid) {/* 如果id为空，说明参数检查没有通过 */
+ 			error = -EINVAL;
+ 			goto out;
+ 		}
+-	} else {
++	} else {/* 没有指定参数，设置默认值 */
+ 		memset(&event.sigev_value, 0, sizeof(event.sigev_value));
++		/**
++		 * 如果用户空间的程序没有指定sigevent_t的参数
++		 * 那么内核的缺省行为是发送SIGALRM给调用线程所属的线程组leader。
++		 */
+ 		event.sigev_notify = SIGEV_SIGNAL;
+ 		event.sigev_signo = SIGALRM;
+ 		event.sigev_value.sival_int = new_timer->it_id;
++		/* 默认由领头进程来处理信号 */
+ 		new_timer->it_pid = get_pid(task_tgid(current));
+ 	}
+ 
+@@ -654,19 +744,28 @@ SYSCALL_DEFINE3(timer_create, const clockid_t, which_clock,
+ 	new_timer->sigq->info.si_signo = event.sigev_signo;
+ 	new_timer->sigq->info.si_value = event.sigev_value;
+ 	new_timer->sigq->info.si_tid   = new_timer->it_id;
++	/**
++	 * SI_TIMER用来标识该信号是由于posix timer而产生的。
++	 */
+ 	new_timer->sigq->info.si_code  = SI_TIMER;
+ 
++	/* 将分配的timer ID 拷贝回用户空间 */
+ 	if (copy_to_user(created_timer_id,
+ 			 &new_timer_id, sizeof (new_timer_id))) {
+ 		error = -EFAULT;
+ 		goto out;
+ 	}
+ 
++	/**
++	 * 也就是个二传手
++	 * 将创建任务交给具体的时钟
++	 */
+ 	error = kc->timer_create(new_timer);
+ 	if (error)
+ 		goto out;
+ 
+ 	spin_lock_irq(&current->sighand->siglock);
++	/* 建立posix timer和当前进程signal descriptor的关系 */
+ 	new_timer->it_signal = current->signal;
+ 	list_add(&new_timer->list, &current->signal->posix_timers);
+ 	spin_unlock_irq(&current->sighand->siglock);
+@@ -732,6 +831,9 @@ static struct k_itimer *__lock_timer(timer_t timer_id, unsigned long *flags)
+  * it is the same as a requeue pending timer WRT to what we should
+  * report.
+  */
++/**
++ * 获得posix定时器的设置
++ */
+ static void
+ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
+ {
+@@ -740,15 +842,20 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
+ 
+ 	memset(cur_setting, 0, sizeof(struct itimerspec));
+ 
++	/**
++	 * 获取该posix timer对应的timer period值
++	 */
+ 	iv = timr->it.real.interval;
+ 
+ 	/* interval timer ? */
+-	if (iv.tv64)
++	if (iv.tv64)/* 周期性定时器 */
++		/* interval timer需返回timer period */
+ 		cur_setting->it_interval = ktime_to_timespec(iv);
+ 	else if (!hrtimer_active(timer) &&
+-		 (timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE)
+-		return;
++		 (timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE)/* one shot */
++		return;/* 返回0就行了 */
+ 
++	/* 先取得当前时间点的值 */
+ 	now = timer->base->get_time();
+ 
+ 	/*
+@@ -756,13 +863,15 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
+ 	 * timer move the expiry time forward by intervals, so
+ 	 * expiry is > now.
+ 	 */
+-	if (iv.tv64 && (timr->it_requeue_pending & REQUEUE_PENDING ||
+-	    (timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE))
++	if (iv.tv64 && (timr->it_requeue_pending & REQUEUE_PENDING ||/* 周期性定时器，并且信号被挂起 */
++	    (timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE))/* 轮询方式的定时器 */
++	    	/*  如果超时，就重置定时器并增加it_overrun */
+ 		timr->it_overrun += (unsigned int) hrtimer_forward(timer, now, iv);
+ 
++	/* 计算剩余时间 */
+ 	remaining = ktime_sub(hrtimer_get_expires(timer), now);
+ 	/* Return 0 only, when the timer is expired and not pending */
+-	if (remaining.tv64 <= 0) {
++	if (remaining.tv64 <= 0) {/* 已经超期 */
+ 		/*
+ 		 * A single shot SIGEV_NONE timer must return 0, when
+ 		 * it is expired !
+@@ -770,10 +879,14 @@ common_timer_get(struct k_itimer *timr, struct itimerspec *cur_setting)
+ 		if ((timr->it_sigev_notify & ~SIGEV_THREAD_ID) != SIGEV_NONE)
+ 			cur_setting->it_value.tv_nsec = 1;
+ 	} else
++		/* 返回剩余时间信息 */
+ 		cur_setting->it_value = ktime_to_timespec(remaining);
+ }
+ 
+ /* Get the time remaining on a POSIX.1b interval timer. */
++/**
++ * 获取一个posix timer剩余时间
++ */
+ SYSCALL_DEFINE2(timer_gettime, timer_t, timer_id,
+ 		struct itimerspec __user *, setting)
+ {
+@@ -783,18 +896,26 @@ SYSCALL_DEFINE2(timer_gettime, timer_t, timer_id,
+ 	unsigned long flags;
+ 	int ret = 0;
+ 
++	/**
++	 * 根据timer ID找到对应的posix timer
++	 */
+ 	timr = lock_timer(timer_id, &flags);
+ 	if (!timr)
+ 		return -EINVAL;
+ 
++	/**
++	 * 根据clock ID获取内核中的struct k_clock
++	 */
+ 	kc = clockid_to_kclock(timr->it_clock);
+ 	if (WARN_ON_ONCE(!kc || !kc->timer_get))
+ 		ret = -EINVAL;
+ 	else
++		/* 调用具体clock的get timer函数 */
+ 		kc->timer_get(timr, &cur_setting);
+ 
+ 	unlock_timer(timr, flags);
+ 
++	/* 将结果copy到用户空间 */
+ 	if (!ret && copy_to_user(setting, &cur_setting, sizeof (cur_setting)))
+ 		return -EFAULT;
+ 
+@@ -832,10 +953,13 @@ static int
+ common_timer_set(struct k_itimer *timr, int flags,
+ 		 struct itimerspec *new_setting, struct itimerspec *old_setting)
+ {
++	/**
++	 * 获取该posix timer对应的高精度timer
++	 */
+ 	struct hrtimer *timer = &timr->it.real.timer;
+ 	enum hrtimer_mode mode;
+ 
+-	if (old_setting)
++	if (old_setting)/* 获取旧的timer设定 */
+ 		common_timer_get(timr, old_setting);
+ 
+ 	/* disable the timer */
+@@ -844,17 +968,31 @@ common_timer_set(struct k_itimer *timr, int flags,
+ 	 * careful here.  If smp we could be in the "fire" routine which will
+ 	 * be spinning as we hold the lock.  But this is ONLY an SMP issue.
+ 	 */
++	/**
++	 * 停掉该高精度timer
++	 */
+ 	if (hrtimer_try_to_cancel(timer) < 0)
+-		return TIMER_RETRY;
++		return TIMER_RETRY;/* 竟然停止不掉? */
+ 
++	/**
++	 * it_requeue_pending状态flag中的信号私有数据加一
++	 * 这个私有数据是[31:1]，因此代码中加2
++	 * 并且清除pending flag
++	 */
+ 	timr->it_requeue_pending = (timr->it_requeue_pending + 2) & 
+ 		~REQUEUE_PENDING;
++	/* 上次的overrun count要被清除 */
+ 	timr->it_overrun_last = 0;
+ 
+ 	/* switch off the timer when it_value is zero */
++	/**
++	 * 新设定的时间值等于0 
++	 * 说明仅仅是想停止掉该定时器
++	 */
+ 	if (!new_setting->it_value.tv_sec && !new_setting->it_value.tv_nsec)
+ 		return 0;
+ 
++	/* 重新初始化高精度定时器 */
+ 	mode = flags & TIMER_ABSTIME ? HRTIMER_MODE_ABS : HRTIMER_MODE_REL;
+ 	hrtimer_init(&timr->it.real.timer, timr->it_clock, mode);
+ 	timr->it.real.timer.function = posix_timer_fn;
+@@ -862,22 +1000,36 @@ common_timer_set(struct k_itimer *timr, int flags,
+ 	hrtimer_set_expires(timer, timespec_to_ktime(new_setting->it_value));
+ 
+ 	/* Convert interval */
++	/**
++	 * 设置interval的值
++	 * 通过该值可以设定周期性timer
++	 * 用户空间传入的参数是timespec
++	 * 需转换成ktime的时间格式
++	 */
+ 	timr->it.real.interval = timespec_to_ktime(new_setting->it_interval);
+ 
+ 	/* SIGEV_NONE timers are not queued ! See common_timer_get */
++	/* 对于轮询类型的posix timer，我们并不会真正启动该timer */
+ 	if (((timr->it_sigev_notify & ~SIGEV_THREAD_ID) == SIGEV_NONE)) {
+ 		/* Setup correct expiry time for relative timers */
+-		if (mode == HRTIMER_MODE_REL) {
++		if (mode == HRTIMER_MODE_REL) {/* 非绝对时间 */
++			/* 在当前时间上面加上相对时间 */
+ 			hrtimer_add_expires(timer, timer->base->get_time());
+ 		}
+ 		return 0;
+ 	}
+ 
++	/* 启动高精度timer */
+ 	hrtimer_start_expires(timer, mode);
+ 	return 0;
+ }
+ 
+ /* Set a POSIX.1b interval timer */
++/**
++ * 设置posix时钟的值
++ *	flag:	相对时间还是绝对时间
++ *	new_setting:	如果值为0，则停止时钟
++ */
+ SYSCALL_DEFINE4(timer_settime, timer_t, timer_id, int, flags,
+ 		const struct itimerspec __user *, new_setting,
+ 		struct itimerspec __user *, old_setting)
+@@ -941,6 +1093,9 @@ static inline int timer_delete_hook(struct k_itimer *timer)
+ }
+ 
+ /* Delete a POSIX.1b interval timer. */
++/**
++ * 删除posix定时器
++ */
+ SYSCALL_DEFINE1(timer_delete, timer_t, timer_id)
+ {
+ 	struct k_itimer *timer;
+@@ -1065,6 +1220,9 @@ SYSCALL_DEFINE2(clock_adjtime, const clockid_t, which_clock,
+ 	return err;
+ }
+ 
++/**
++ * 获取时钟精度
++ */
+ SYSCALL_DEFINE2(clock_getres, const clockid_t, which_clock,
+ 		struct timespec __user *, tp)
+ {
+diff --git a/kernel/time/tick-common.c b/kernel/time/tick-common.c
+old mode 100644
+new mode 100755
+index 4fcd99e1..3e815bd9
+--- a/kernel/time/tick-common.c
++++ b/kernel/time/tick-common.c
+@@ -78,18 +78,25 @@ int tick_is_oneshot_available(void)
+  */
+ static void tick_periodic(int cpu)
+ {
++	/* 全局时钟 */
+ 	if (tick_do_timer_cpu == cpu) {
+ 		write_seqlock(&jiffies_lock);
+ 
+ 		/* Keep track of the next tick event */
+ 		tick_next_period = ktime_add(tick_next_period, tick_period);
+ 
++		/* 修改jiffies，计算系统负荷。 */
+ 		do_timer(1);
+ 		write_sequnlock(&jiffies_lock);
++		/* 更新系统时间 */
+ 		update_wall_time();
+ 	}
+ 
++	/**
++	 * 更新当前系统运行时间
++	 */
+ 	update_process_times(user_mode(get_irq_regs()));
++	/* 处理profile */
+ 	profile_tick(CPU_PROFILING);
+ }
+ 
+diff --git a/kernel/time/tick-sched.c b/kernel/time/tick-sched.c
+old mode 100644
+new mode 100755
+index 7c7ec451..3846a0eb
+--- a/kernel/time/tick-sched.c
++++ b/kernel/time/tick-sched.c
+@@ -65,7 +65,7 @@ static void tick_do_update_jiffies64(ktime_t now)
+ 	write_seqlock(&jiffies_lock);
+ 
+ 	delta = ktime_sub(now, last_jiffies_update);
+-	if (delta.tv64 >= tick_period.tv64) {
++	if (delta.tv64 >= tick_period.tv64) {/* 距离上次tick已经起来一个tick */
+ 
+ 		delta = ktime_sub(delta, tick_period);
+ 		last_jiffies_update = ktime_add(last_jiffies_update,
+@@ -80,6 +80,9 @@ static void tick_do_update_jiffies64(ktime_t now)
+ 			last_jiffies_update = ktime_add_ns(last_jiffies_update,
+ 							   incr * ticks);
+ 		}
++		/**
++		 * 来修改jiffies，计算系统负荷
++		 */
+ 		do_timer(++ticks);
+ 
+ 		/* Keep the tick_next_period variable up to date */
+@@ -89,6 +92,7 @@ static void tick_do_update_jiffies64(ktime_t now)
+ 		return;
+ 	}
+ 	write_sequnlock(&jiffies_lock);
++	/* 更新系统时间 */
+ 	update_wall_time();
+ }
+ 
+@@ -131,6 +135,9 @@ static void tick_sched_do_timer(ktime_t now)
+ 		tick_do_update_jiffies64(now);
+ }
+ 
++/**
++ * NO_HZ情况下，处理sched tick
++ */
+ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
+ {
+ #ifdef CONFIG_NO_HZ_COMMON
+@@ -148,7 +155,9 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
+ 			ts->idle_jiffies++;
+ 	}
+ #endif
++	/* 更新进程时间 */
+ 	update_process_times(user_mode(regs));
++	/* 内核剖析相关的操作 */
+ 	profile_tick(CPU_PROFILING);
+ }
+ 
+diff --git a/kernel/time/time.c b/kernel/time/time.c
+old mode 100644
+new mode 100755
+index 86751c68..de57153c
+--- a/kernel/time/time.c
++++ b/kernel/time/time.c
+@@ -60,6 +60,12 @@ EXPORT_SYMBOL(sys_tz);
+  * why not move it into the appropriate arch directory (for those
+  * architectures that need it).
+  */
++/**
++ * time系统调用
++ * 返回当前时间点到linux epoch的秒数
++ * 一般用sys_gettimeofday来实现
++ * 这里为了保持兼容而已
++ */
+ SYSCALL_DEFINE1(time, time_t __user *, tloc)
+ {
+ 	time_t i = get_seconds();
+@@ -78,7 +84,10 @@ SYSCALL_DEFINE1(time, time_t __user *, tloc)
+  * why not move it into the appropriate arch directory (for those
+  * architectures that need it).
+  */
+-
++/**
++ * stime系统调用
++ * 设定当前时间点到linux epoch的秒数
++ */
+ SYSCALL_DEFINE1(stime, time_t __user *, tptr)
+ {
+ 	struct timespec tv;
+diff --git a/kernel/time/timekeeping.c b/kernel/time/timekeeping.c
+old mode 100644
+new mode 100755
+index 268fb093..3bf052d0
+--- a/kernel/time/timekeeping.c
++++ b/kernel/time/timekeeping.c
+@@ -28,20 +28,39 @@
+ #include "ntp_internal.h"
+ #include "timekeeping_internal.h"
+ 
++/**
++ * 清除旧的NTP的状态数据
++ */
+ #define TK_CLEAR_NTP		(1 << 0)
++/**
++ * 更新shadow timekeeper，为了保持和real timekeeper同步
++ */
+ #define TK_MIRROR		(1 << 1)
++/**
++ * 用于paravirtual clock
++ */
+ #define TK_CLOCK_WAS_SET	(1 << 2)
+ 
+ /*
+  * The most important data for readout fits into a single 64 byte
+  * cache line.
+  */
++/**
++ * timekeeper对象及其顺序锁
++ */
+ static struct {
+ 	seqcount_t		seq;
+ 	struct timekeeper	timekeeper;
+ } tk_core ____cacheline_aligned;
+ 
++/**
++ * 保护timekeeper的自旋锁
++ */
+ static DEFINE_RAW_SPINLOCK(timekeeper_lock);
++/**
++ * 用在更新系统时间的过程中
++ * 减少顺序锁的持有时间
++ */
+ static struct timekeeper shadow_timekeeper;
+ 
+ /**
+@@ -227,6 +246,9 @@ static inline cycle_t timekeeping_get_delta(struct tk_read_base *tkr)
+  *
+  * Unless you're the timekeeping code, you should not be using this!
+  */
++/**
++ * 启用新的clocksource
++ */
+ static void tk_setup_internals(struct timekeeper *tk, struct clocksource *clock)
+ {
+ 	cycle_t interval;
+@@ -234,9 +256,11 @@ static void tk_setup_internals(struct timekeeper *tk, struct clocksource *clock)
+ 	struct clocksource *old_clock;
+ 
+ 	old_clock = tk->tkr_mono.clock;
++	/* 更换为新的clocksource */
+ 	tk->tkr_mono.clock = clock;
+ 	tk->tkr_mono.read = clock->read;
+ 	tk->tkr_mono.mask = clock->mask;
++	/* 更新last cycle值 */
+ 	tk->tkr_mono.cycle_last = tk->tkr_mono.read(clock);
+ 
+ 	tk->tkr_raw.clock = clock;
+@@ -245,6 +269,9 @@ static void tk_setup_internals(struct timekeeper *tk, struct clocksource *clock)
+ 	tk->tkr_raw.cycle_last = tk->tkr_mono.cycle_last;
+ 
+ 	/* Do the ns -> cycle conversion first, using original mult */
++	/**
++	 * NTP计算用的内部变量
++	 */
+ 	tmp = NTP_INTERVAL_LENGTH;
+ 	tmp <<= clock->shift;
+ 	ntpinterval = tmp;
+@@ -623,6 +650,9 @@ static void timekeeping_forward_now(struct timekeeper *tk)
+  * Updates the time of day in the timespec.
+  * Returns 0 on success, or -ve when suspended (timespec will be undefined).
+  */
++/**
++ * 获得realtime的时间
++ */
+ int __getnstimeofday64(struct timespec64 *ts)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -637,6 +667,9 @@ int __getnstimeofday64(struct timespec64 *ts)
+ 
+ 	} while (read_seqcount_retry(&tk_core.seq, seq));
+ 
++	/**
++	 * 注意这里，必须调用timespec64_add_ns
++	 */
+ 	ts->tv_nsec = 0;
+ 	timespec64_add_ns(ts, nsecs);
+ 
+@@ -662,6 +695,9 @@ void getnstimeofday64(struct timespec64 *ts)
+ }
+ EXPORT_SYMBOL(getnstimeofday64);
+ 
++/**
++ * 获取monotonic clock的时间值
++ */
+ ktime_t ktime_get(void)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -672,12 +708,24 @@ ktime_t ktime_get(void)
+ 	WARN_ON(timekeeping_suspended);
+ 
+ 	do {
++		/**
++		 * 内核中少有的，用到顺序锁的地方
++		 */
+ 		seq = read_seqcount_begin(&tk_core.seq);
++		/**
++		 * 获得CLOCK_MONOTONIC的基准
++		 */
+ 		base = tk->tkr_mono.base;
++		/**
++		 * 获得CLOCK_MONOTONIC的offset
++		 */
+ 		nsecs = timekeeping_get_ns(&tk->tkr_mono);
+ 
+ 	} while (read_seqcount_retry(&tk_core.seq, seq));
+ 
++	/**
++	 * 放在这里计算，减少锁的争用
++	 */
+ 	return ktime_add_ns(base, nsecs);
+ }
+ EXPORT_SYMBOL_GPL(ktime_get);
+@@ -775,6 +823,10 @@ EXPORT_SYMBOL_GPL(ktime_get_raw);
+  * clock and the wall_to_monotonic offset and stores the result
+  * in normalized timespec64 format in the variable pointed to by @ts.
+  */
++/**
++ * 获取monotonic clock的时间值
++ * 类似于ktime_get
++ */
+ void ktime_get_ts64(struct timespec64 *ts)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -890,6 +942,10 @@ EXPORT_SYMBOL(getnstime_raw_and_real);
+  *
+  * NOTE: Users should be converted to using getnstimeofday()
+  */
++/**
++ * 获取从linux epoch到当前时间点的秒数以及纳秒数
++ * 已经废弃的接口，用clock_gettime
++ */
+ void do_gettimeofday(struct timeval *tv)
+ {
+ 	struct timespec64 now;
+@@ -906,6 +962,7 @@ EXPORT_SYMBOL(do_gettimeofday);
+  *
+  * Sets the time of day to the new time and update NTP and notify hrtimers
+  */
++
+ int do_settimeofday64(const struct timespec64 *ts)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -916,9 +973,13 @@ int do_settimeofday64(const struct timespec64 *ts)
+ 	if (!timespec64_valid_strict(ts))
+ 		return -EINVAL;
+ 
++	/* 获取timerkeeper自旋锁 */
+ 	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+ 	write_seqcount_begin(&tk_core.seq);
+ 
++	/**
++	 * 更新timekeeper至当前时间
++	 */
+ 	timekeeping_forward_now(tk);
+ 
+ 	xt = tk_xtime(tk);
+@@ -930,10 +991,16 @@ int do_settimeofday64(const struct timespec64 *ts)
+ 		goto out;
+ 	}
+ 
++	/**
++	 * 调整wall time
++	 */
+ 	tk_set_wall_to_mono(tk, timespec64_sub(tk->wall_to_monotonic, ts_delta));
+ 
+ 	tk_set_xtime(tk, ts);
+ out:
++	/**
++	 * timekeeping模块更新其内部数据
++	 */
+ 	timekeeping_update(tk, TK_CLEAR_NTP | TK_MIRROR | TK_CLOCK_WAS_SET);
+ 
+ 	write_seqcount_end(&tk_core.seq);
+@@ -1045,6 +1112,9 @@ void timekeeping_set_tai_offset(s32 tai_offset)
+  *
+  * Accumulates current time interval and initializes new clocksource
+  */
++/**
++ * 切换clock source
++ */
+ static int change_clocksource(void *data)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -1056,17 +1126,22 @@ static int change_clocksource(void *data)
+ 	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+ 	write_seqcount_begin(&tk_core.seq);
+ 
++	/**
++	 * 旧的clocksource刷新一下最新值
++	 */
+ 	timekeeping_forward_now(tk);
+ 	/*
+ 	 * If the cs is in module, get a module reference. Succeeds
+ 	 * for built-in code (owner == NULL) as well.
+ 	 */
+-	if (try_module_get(new->owner)) {
+-		if (!new->enable || new->enable(new) == 0) {
++	if (try_module_get(new->owner)) {/* 模块，别跑，引用一下 */
++		if (!new->enable || new->enable(new) == 0) {/* 成功启用clocksource */
+ 			old = tk->tkr_mono.clock;
++			/* 执行真正的切换操作 */
+ 			tk_setup_internals(tk, new);
+-			if (old->disable)
++			if (old->disable)/* 把旧的关闭掉 */
+ 				old->disable(old);
++			/* 旧模块可以休息了 */
+ 			module_put(old->owner);
+ 		} else {
+ 			module_put(new->owner);
+@@ -1087,13 +1162,18 @@ static int change_clocksource(void *data)
+  * This function is called from clocksource.c after a new, better clock
+  * source has been registered. The caller holds the clocksource_mutex.
+  */
++/**
++ * 当有更好的clocksource，调用此函数更新clock
++ */
+ int timekeeping_notify(struct clocksource *clock)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+ 
+ 	if (tk->tkr_mono.clock == clock)
+ 		return 0;
++	/* 放大招，先停止所有CPU，再进行时钟源切换 */
+ 	stop_machine(change_clocksource, clock, NULL);
++	/* 通知tick模块 */
+ 	tick_clock_notify();
+ 	return tk->tkr_mono.clock == clock ? 0 : -1;
+ }
+@@ -1177,6 +1257,9 @@ void __weak read_persistent_clock(struct timespec *ts)
+ 	ts->tv_nsec = 0;
+ }
+ 
++/**
++ * 从RTC中读取时间
++ */
+ void __weak read_persistent_clock64(struct timespec64 *ts64)
+ {
+ 	struct timespec ts;
+@@ -1220,14 +1303,23 @@ void __init timekeeping_init(void)
+ 	unsigned long flags;
+ 	struct timespec64 now, boot, tmp;
+ 
+-	//读入时钟值，当前只有omap架构实现了。
++	/**
++	 * 读入时钟值，当前只有omap架构实现了。
++	 * 从系统中的HW clock（例如RTC）中获取时间信息。
++	 */
+ 	read_persistent_clock64(&now);
+-	if (!timespec64_valid_strict(&now)) {//没有实现持久的时钟
++	/**
++	 * 校验一个timespec是否是有效。
++	 */
++	if (!timespec64_valid_strict(&now)) {/* 没有实现持久的时钟 */
+ 		pr_warn("WARNING: Persistent clock returned invalid value!\n"
+ 			"         Check your CMOS/BIOS settings.\n");
+ 		now.tv_sec = 0;
+ 		now.tv_nsec = 0;
+-	} else if (now.tv_sec || now.tv_nsec)//实现了，记录下来
++	} else if (now.tv_sec || now.tv_nsec)/* 实现了，记录下来 */
++		/**
++		 * 说明系统中存在RTC的硬件模块
++		 */
+ 		persistent_clock_exists = true;
+ 
+ 	//同样只有omap实现了。
+@@ -1245,17 +1337,39 @@ void __init timekeeping_init(void)
+ 	//ntp初始化
+ 	ntp_init();
+ 
++	/**
++	 * 先找到默认的时钟源
++	 * 默认是基于jiffies实现
++	 * 体系架构可以设置自己的默认源
++	 */
+ 	clock = clocksource_default_clock();
+-	if (clock->enable)
++	if (clock->enable)/* 启用时钟源 */
+ 		clock->enable(clock);
++	/**
++	 * 建立default clocksource和timekeeping伙伴关系。
++	 */
+ 	tk_setup_internals(tk, clock);
+ 
++	/**
++	 * 根据从RTC中获取的时间值来初始化timekeeping中的real time clock
++	 */
+ 	tk_set_xtime(tk, &now);
++	/**
++	 * monotonic raw clock被设定为从0开始。
++	 */
+ 	tk->raw_time.tv_sec = 0;
+ 	tk->raw_time.tv_nsec = 0;
++	/**
++	 * 如果没有获取到有效的booting time，那么就选择当前的real time clock
++	 */
+ 	if (boot.tv_sec == 0 && boot.tv_nsec == 0)
+ 		boot = tk_xtime(tk);
+ 
++	/**
++	 * wall_to_monotonic是real time clock与monotonic clock的差值
++	 * 初始化的时间点上，monotonic clock实际上等于0
++	 * real time clock+ wall_to_monotonic是系统的uptime，而real time clock+ wall_to_monotonic + sleep time也就是系统的boot time。
++	 */
+ 	set_normalized_timespec64(&tmp, -boot.tv_sec, -boot.tv_nsec);
+ 	tk_set_wall_to_mono(tk, tmp);
+ 
+@@ -1284,8 +1398,16 @@ static void __timekeeping_inject_sleeptime(struct timekeeper *tk,
+ 				"sleep delta value!\n");
+ 		return;
+ 	}
++	/**
++	 * 将suspend的时间加到real time clock上去
++	 */
+ 	tk_xtime_add(tk, delta);
++	/**
++	 * monotonic clock不计sleep时间
++	 * 因此wall_to_monotonic要减去suspend的时间值
++	 */
+ 	tk_set_wall_to_mono(tk, timespec64_sub(tk->wall_to_monotonic, *delta));
++	/* 调整sleep时间 */
+ 	tk_update_sleep_time(tk, timespec64_to_ktime(*delta));
+ 	tk_debug_account_sleep_time(delta);
+ }
+@@ -1362,6 +1484,9 @@ void timekeeping_inject_sleeptime64(struct timespec64 *delta)
+ /**
+  * timekeeping_resume - Resumes the generic timekeeping subsystem.
+  */
++/**
++ * 系统恢复时的timekeeping回调
++ */
+ void timekeeping_resume(void)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -1371,9 +1496,18 @@ void timekeeping_resume(void)
+ 	cycle_t cycle_now, cycle_delta;
+ 
+ 	sleeptime_injected = false;
++	/**
++	 * 通过persistent clock记录醒来的时间点
++	 */
+ 	read_persistent_clock64(&ts_new);
+ 
++	/**
++	 * resume系统中所有的clockevent设备
++	 */
+ 	clockevents_resume();
++	/**
++	 * resume系统中所有的clocksource设备
++	 */
+ 	clocksource_resume();
+ 
+ 	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+@@ -1392,13 +1526,16 @@ void timekeeping_resume(void)
+ 	 * usable source. The rtc part is handled separately in rtc core code.
+ 	 */
+ 	cycle_now = tk->tkr_mono.read(clock);
+-	if ((clock->flags & CLOCK_SOURCE_SUSPEND_NONSTOP) &&
+-		cycle_now > tk->tkr_mono.cycle_last) {
++	if ((clock->flags & CLOCK_SOURCE_SUSPEND_NONSTOP) &&/* 当前的clocksource在suspend的时候没有stop */
++		cycle_now > tk->tkr_mono.cycle_last) {/* clocksource没有溢出 */
+ 		u64 num, max = ULLONG_MAX;
+ 		u32 mult = clock->mult;
+ 		u32 shift = clock->shift;
+ 		s64 nsec = 0;
+ 
++		/**
++		 * 计算本次睡眠的时间
++		 */
+ 		cycle_delta = clocksource_delta(cycle_now, tk->tkr_mono.cycle_last,
+ 						tk->tkr_mono.mask);
+ 
+@@ -1413,15 +1550,18 @@ void timekeeping_resume(void)
+ 			nsec = (((u64) max * mult) >> shift) * num;
+ 			cycle_delta -= num * max;
+ 		}
++		/* 将睡眠时间转换为纳秒 */
+ 		nsec += ((u64) cycle_delta * mult) >> shift;
+ 
+ 		ts_delta = ns_to_timespec64(nsec);
+ 		sleeptime_injected = true;
++	/* 否则用RTC的值 */
+ 	} else if (timespec64_compare(&ts_new, &timekeeping_suspend_time) > 0) {
+ 		ts_delta = timespec64_sub(ts_new, timekeeping_suspend_time);
+ 		sleeptime_injected = true;
+ 	}
+ 
++	/* 将睡眠时考虑进timekeeping */
+ 	if (sleeptime_injected)
+ 		__timekeeping_inject_sleeptime(tk, &ts_delta);
+ 
+@@ -1441,6 +1581,9 @@ void timekeeping_resume(void)
+ 	hrtimers_resume();
+ }
+ 
++/**
++ * 系统挂起时的timekeeping回调
++ */
+ int timekeeping_suspend(void)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -1448,6 +1591,11 @@ int timekeeping_suspend(void)
+ 	struct timespec64		delta, delta_delta;
+ 	static struct timespec64	old_delta;
+ 
++	/**
++	 * suspend时间点信息记录到timekeeping_suspend_time变量中
++	 * 虽然RTC的精度不高，但是在挂起后也能运行
++	 * 聊胜于无
++	 */
+ 	read_persistent_clock64(&timekeeping_suspend_time);
+ 
+ 	/*
+@@ -1460,10 +1608,17 @@ int timekeeping_suspend(void)
+ 
+ 	raw_spin_lock_irqsave(&timekeeper_lock, flags);
+ 	write_seqcount_begin(&tk_core.seq);
++	/**
++	 * 临睡前，最后一次更新timekeeper的系统时钟的数据
++	 */
+ 	timekeeping_forward_now(tk);
++	/**
++	 * 标记timekeeping subsystem进入suspend过程。
++	 * 在这个过程中的获取时间操作应该被禁止。
++	 */
+ 	timekeeping_suspended = 1;
+ 
+-	if (persistent_clock_exists) {
++	if (persistent_clock_exists) {/* 有RTC */
+ 		/*
+ 		 * To avoid drift caused by repeated suspend/resumes,
+ 		 * which each can add ~1 second drift error,
+@@ -1472,6 +1627,11 @@ int timekeeping_suspend(void)
+ 		 */
+ 		delta = timespec64_sub(tk_xtime(tk), timekeeping_suspend_time);
+ 		delta_delta = timespec64_sub(delta, old_delta);
++		/**
++		 * 一次suspend/resume的过程中，read persistent clock会引入半秒的误差。
++		 * 为了防止连续的suspend/resume引起时间偏移，这里也考虑了real time clock和persistent clock之间的delta值。
++		 * delta是本次real time clock和persistent clock之间的差值，delta_delta是两次suspend之间delta的差值
++		 */
+ 		if (abs(delta_delta.tv_sec) >= 2) {
+ 			/*
+ 			 * if delta_delta is too large, assume time correction
+@@ -1498,11 +1658,18 @@ int timekeeping_suspend(void)
+ }
+ 
+ /* sysfs resume/suspend bits for timekeeping */
++/**
++ * timekeeping的电源回调函数
++ * 在普通的总线设备之后进行挂起
++ */
+ static struct syscore_ops timekeeping_syscore_ops = {
+ 	.resume		= timekeeping_resume,
+ 	.suspend	= timekeeping_suspend,
+ };
+ 
++/**
++ * 注册timekeeping的电源回调函数
++ */
+ static int __init timekeeping_init_ops(void)
+ {
+ 	register_syscore_ops(&timekeeping_syscore_ops);
+@@ -1905,6 +2072,9 @@ struct timespec64 current_kernel_time64(void)
+ }
+ EXPORT_SYMBOL(current_kernel_time64);
+ 
++/**
++ * 获取低精度的monotonic clock
++ */
+ struct timespec64 get_monotonic_coarse64(void)
+ {
+ 	struct timekeeper *tk = &tk_core.timekeeper;
+@@ -1914,6 +2084,9 @@ struct timespec64 get_monotonic_coarse64(void)
+ 	do {
+ 		seq = read_seqcount_begin(&tk_core.seq);
+ 
++		/**
++		 * 直接取wall time，而没有考虑offset
++		 */
+ 		now = tk_xtime(tk);
+ 		mono = tk->wall_to_monotonic;
+ 	} while (read_seqcount_retry(&tk_core.seq, seq));
+-- 
+2.25.1
+
